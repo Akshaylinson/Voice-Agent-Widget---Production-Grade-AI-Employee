@@ -87,7 +87,140 @@ window.VOICE_AGENT_API_URL = "http://localhost:8000/api";
 @app.get("/admin/tenants")
 def list_tenants(db: Session = Depends(get_db)):
     tenants = db.query(Tenant).all()
-    return [{"id": str(t.id), "company_name": t.company_name, "domain": t.domain, "status": t.status} for t in tenants]
+    return [{
+        "id": str(t.id), 
+        "company_name": t.company_name, 
+        "domain": t.domain, 
+        "voice_model": t.voice_model,
+        "status": t.status,
+        "created_at": t.created_at.isoformat()
+    } for t in tenants]
+
+@app.get("/admin/tenant/{tenant_id}")
+def get_tenant_details(tenant_id: str, db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    avatar = None
+    if tenant.avatar_id:
+        avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
+    
+    # Get analytics
+    total_conversations = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).count()
+    total_tokens = db.query(func.sum(Conversation.token_usage)).filter(Conversation.tenant_id == tenant.id).scalar() or 0
+    last_activity = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).order_by(
+        Conversation.created_at.desc()
+    ).first()
+    
+    return {
+        "id": str(tenant.id),
+        "company_name": tenant.company_name,
+        "domain": tenant.domain,
+        "avatar_id": str(tenant.avatar_id) if tenant.avatar_id else None,
+        "avatar_url": avatar.image_url if avatar else None,
+        "introduction_script": tenant.introduction_script,
+        "voice_model": tenant.voice_model,
+        "voice_tone": tenant.voice_tone,
+        "temperature": tenant.temperature,
+        "max_tokens": tenant.max_tokens,
+        "status": tenant.status,
+        "brand_colors": tenant.brand_colors,
+        "widget_signature": tenant.widget_signature,
+        "created_at": tenant.created_at.isoformat(),
+        "analytics": {
+            "total_conversations": total_conversations,
+            "total_tokens": int(total_tokens),
+            "last_activity": last_activity.created_at.isoformat() if last_activity else None
+        }
+    }
+
+class TenantUpdate(BaseModel):
+    company_name: Optional[str] = None
+    domain: Optional[str] = None
+    avatar_id: Optional[str] = None
+    introduction_script: Optional[str] = None
+    voice_model: Optional[str] = None
+    voice_tone: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    openai_api_key: Optional[str] = None
+    brand_colors: Optional[dict] = None
+
+@app.put("/admin/tenant/{tenant_id}")
+def update_tenant(tenant_id: str, data: TenantUpdate, db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    if data.company_name: tenant.company_name = data.company_name
+    if data.domain: tenant.domain = data.domain
+    if data.avatar_id: tenant.avatar_id = data.avatar_id
+    if data.introduction_script is not None: tenant.introduction_script = data.introduction_script
+    if data.voice_model: tenant.voice_model = data.voice_model
+    if data.voice_tone: tenant.voice_tone = data.voice_tone
+    if data.temperature is not None: tenant.temperature = data.temperature
+    if data.max_tokens: tenant.max_tokens = data.max_tokens
+    if data.openai_api_key: tenant.openai_api_key_encrypted = encrypt_api_key(data.openai_api_key)
+    if data.brand_colors: tenant.brand_colors = data.brand_colors
+    
+    db.commit()
+    return {"status": "updated"}
+
+@app.get("/admin/tenant/{tenant_id}/knowledge")
+def get_tenant_knowledge(tenant_id: str, db: Session = Depends(get_db)):
+    knowledge = db.query(KnowledgeBase).filter(KnowledgeBase.tenant_id == tenant_id).all()
+    return [{"id": str(k.id), "category": k.category, "title": k.title, "content": k.content, "is_active": k.is_active} for k in knowledge]
+
+@app.post("/admin/tenant/{tenant_id}/knowledge")
+def create_tenant_knowledge(tenant_id: str, knowledge: KnowledgeCreate, db: Session = Depends(get_db)):
+    entry = KnowledgeBase(
+        tenant_id=tenant_id,
+        category=knowledge.category,
+        title=knowledge.title,
+        content=knowledge.content
+    )
+    db.add(entry)
+    db.commit()
+    return {"status": "created", "id": str(entry.id)}
+
+class KnowledgeUpdate(BaseModel):
+    category: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    is_active: Optional[bool] = None
+
+@app.put("/admin/tenant/{tenant_id}/knowledge/{knowledge_id}")
+def update_tenant_knowledge(tenant_id: str, knowledge_id: str, data: KnowledgeUpdate, db: Session = Depends(get_db)):
+    entry = db.query(KnowledgeBase).filter(
+        KnowledgeBase.id == knowledge_id,
+        KnowledgeBase.tenant_id == tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    
+    if data.category: entry.category = data.category
+    if data.title: entry.title = data.title
+    if data.content: entry.content = data.content
+    if data.is_active is not None: entry.is_active = data.is_active
+    
+    db.commit()
+    return {"status": "updated"}
+
+@app.delete("/admin/tenant/{tenant_id}/knowledge/{knowledge_id}")
+def delete_tenant_knowledge(tenant_id: str, knowledge_id: str, db: Session = Depends(get_db)):
+    entry = db.query(KnowledgeBase).filter(
+        KnowledgeBase.id == knowledge_id,
+        KnowledgeBase.tenant_id == tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    
+    db.delete(entry)
+    db.commit()
+    return {"status": "deleted"}
 
 @app.put("/admin/tenants/{tenant_id}/status")
 def update_tenant_status(tenant_id: str, status: str, db: Session = Depends(get_db)):

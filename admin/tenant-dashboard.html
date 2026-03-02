@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tenant Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #f3f4f6;
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        .sidebar h2 { margin-bottom: 30px; font-size: 20px; }
+        .sidebar a {
+            display: block;
+            color: white;
+            text-decoration: none;
+            padding: 12px 15px;
+            margin-bottom: 5px;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+        .sidebar a:hover, .sidebar a.active { background: rgba(255,255,255,0.2); }
+        
+        .main-content {
+            margin-left: 250px;
+            flex: 1;
+            padding: 30px;
+        }
+        
+        .breadcrumb {
+            color: #6b7280;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .breadcrumb a { color: #667eea; text-decoration: none; }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .card h3 { color: #1f2937; margin-bottom: 20px; font-size: 18px; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: #374151; 
+            font-weight: 600;
+            font-size: 14px;
+        }
+        input, textarea, select { 
+            width: 100%; 
+            padding: 10px 12px; 
+            border: 2px solid #e5e7eb; 
+            border-radius: 8px; 
+            font-size: 14px;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button { 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover { opacity: 0.9; }
+        .btn-secondary { background: #6b7280; }
+        .btn-danger { background: #ef4444; }
+        
+        .avatar-preview {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-top: 10px;
+        }
+        
+        .knowledge-item {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+        .knowledge-item h4 { color: #1f2937; margin-bottom: 5px; }
+        .knowledge-item .category { 
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .stat-card h4 { font-size: 32px; margin-bottom: 5px; }
+        .stat-card p { font-size: 14px; opacity: 0.9; }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .slider-container input[type="range"] { flex: 1; }
+        .slider-value {
+            background: #f3f4f6;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            min-width: 50px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2 id="tenant-name">Loading...</h2>
+        <a href="#overview" class="active" onclick="showSection('overview')">📊 Overview</a>
+        <a href="#avatar" onclick="showSection('avatar')">🎭 Avatar</a>
+        <a href="#voice" onclick="showSection('voice')">🎙️ Voice Settings</a>
+        <a href="#knowledge" onclick="showSection('knowledge')">📚 Knowledge Base</a>
+        <a href="#analytics" onclick="showSection('analytics')">📈 Analytics</a>
+        <hr style="margin: 20px 0; border: 1px solid rgba(255,255,255,0.2);">
+        <a href="index.html">← Back to Admin</a>
+    </div>
+
+    <div class="main-content">
+        <div class="breadcrumb">
+            <a href="index.html">Admin</a> > <a href="index.html">Tenants</a> > <span id="breadcrumb-name">Loading...</span>
+        </div>
+
+        <!-- OVERVIEW SECTION -->
+        <div id="section-overview">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h4 id="stat-conversations">0</h4>
+                    <p>Total Conversations</p>
+                </div>
+                <div class="stat-card">
+                    <h4 id="stat-tokens">0</h4>
+                    <p>Total Tokens Used</p>
+                </div>
+                <div class="stat-card">
+                    <h4 id="stat-activity">Never</h4>
+                    <p>Last Activity</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Basic Information</h3>
+                <div class="form-group">
+                    <label>Company Name</label>
+                    <input type="text" id="company_name">
+                </div>
+                <div class="form-group">
+                    <label>Domain</label>
+                    <input type="text" id="domain">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="status">
+                        <option value="active">Active</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                </div>
+                <button onclick="saveBasicInfo()">Save Changes</button>
+            </div>
+
+            <div class="card">
+                <h3>Introduction Script</h3>
+                <textarea id="introduction_script" rows="4" placeholder="Hello! I'm your AI assistant..."></textarea>
+                <button onclick="saveIntroduction()" style="margin-top:10px;">Save Introduction</button>
+            </div>
+        </div>
+
+        <!-- AVATAR SECTION -->
+        <div id="section-avatar" style="display:none;">
+            <div class="card">
+                <h3>Avatar Configuration</h3>
+                <div class="form-group">
+                    <label>Select Avatar</label>
+                    <select id="avatar_select" onchange="previewAvatar()">
+                        <option value="">-- Select Avatar --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Preview</label>
+                    <img id="avatar_preview" class="avatar-preview" src="" alt="No avatar selected" style="display:none;">
+                </div>
+                <button onclick="saveAvatar()">Save Avatar</button>
+            </div>
+        </div>
+
+        <!-- VOICE SETTINGS SECTION -->
+        <div id="section-voice" style="display:none;">
+            <div class="card">
+                <h3>Voice Model</h3>
+                <div class="form-group">
+                    <label>Voice Model</label>
+                    <select id="voice_model">
+                        <option value="nova">Nova (Female)</option>
+                        <option value="shimmer">Shimmer (Female)</option>
+                        <option value="alloy">Alloy (Neutral)</option>
+                        <option value="echo">Echo (Male)</option>
+                        <option value="onyx">Onyx (Male)</option>
+                        <option value="fable">Fable (British)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Voice Tone</label>
+                    <select id="voice_tone">
+                        <option value="friendly">Friendly</option>
+                        <option value="professional">Professional</option>
+                        <option value="formal">Formal</option>
+                        <option value="energetic">Energetic</option>
+                        <option value="calm">Calm</option>
+                    </select>
+                </div>
+                <button onclick="saveVoiceSettings()">Save Voice Settings</button>
+            </div>
+
+            <div class="card">
+                <h3>AI Parameters</h3>
+                <div class="form-group">
+                    <label>Temperature (Creativity)</label>
+                    <div class="slider-container">
+                        <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7" oninput="updateSliderValue('temperature')">
+                        <span class="slider-value" id="temperature-value">0.7</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Max Tokens (Response Length)</label>
+                    <div class="slider-container">
+                        <input type="range" id="max_tokens" min="100" max="2000" step="50" value="500" oninput="updateSliderValue('max_tokens')">
+                        <span class="slider-value" id="max_tokens-value">500</span>
+                    </div>
+                </div>
+                <button onclick="saveAIParameters()">Save AI Parameters</button>
+            </div>
+
+            <div class="card">
+                <h3>OpenAI API Key</h3>
+                <div class="form-group">
+                    <label>API Key (leave blank to keep current)</label>
+                    <input type="password" id="openai_api_key" placeholder="sk-...">
+                </div>
+                <button onclick="updateAPIKey()">Update API Key</button>
+            </div>
+        </div>
+
+        <!-- KNOWLEDGE BASE SECTION -->
+        <div id="section-knowledge" style="display:none;">
+            <div class="card">
+                <h3>Knowledge Base</h3>
+                <button onclick="showKnowledgeForm()">+ Add Knowledge Entry</button>
+                
+                <div id="knowledge-form" style="display:none; margin-top:20px; padding:20px; background:#f9fafb; border-radius:10px;">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="kb_category">
+                            <option value="company_overview">Company Overview</option>
+                            <option value="services">Services</option>
+                            <option value="products">Products</option>
+                            <option value="pricing">Pricing</option>
+                            <option value="faq">FAQ</option>
+                            <option value="policies">Policies</option>
+                            <option value="contact">Contact</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input type="text" id="kb_title" placeholder="Entry title">
+                    </div>
+                    <div class="form-group">
+                        <label>Content</label>
+                        <textarea id="kb_content" rows="4" placeholder="Knowledge content"></textarea>
+                    </div>
+                    <button onclick="saveKnowledge()">Save</button>
+                    <button class="btn-secondary" onclick="hideKnowledgeForm()">Cancel</button>
+                </div>
+
+                <div id="knowledge-list" style="margin-top:20px;"></div>
+            </div>
+        </div>
+
+        <!-- ANALYTICS SECTION -->
+        <div id="section-analytics" style="display:none;">
+            <div class="card">
+                <h3>Usage Analytics</h3>
+                <p>Analytics dashboard coming soon...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const urlParams = new URLSearchParams(window.location.search);
+        const TENANT_ID = urlParams.get('id');
+        let tenantData = null;
+        let avatarsCache = [];
+
+        if (!TENANT_ID) {
+            alert('No tenant ID provided');
+            window.location.href = 'index.html';
+        }
+
+        async function loadTenantData() {
+            try {
+                const res = await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`);
+                tenantData = await res.json();
+                
+                document.getElementById('tenant-name').textContent = tenantData.company_name;
+                document.getElementById('breadcrumb-name').textContent = tenantData.company_name;
+                document.getElementById('company_name').value = tenantData.company_name;
+                document.getElementById('domain').value = tenantData.domain;
+                document.getElementById('status').value = tenantData.status;
+                document.getElementById('introduction_script').value = tenantData.introduction_script || '';
+                document.getElementById('voice_model').value = tenantData.voice_model;
+                document.getElementById('voice_tone').value = tenantData.voice_tone || 'friendly';
+                document.getElementById('temperature').value = tenantData.temperature || 0.7;
+                document.getElementById('max_tokens').value = tenantData.max_tokens || 500;
+                updateSliderValue('temperature');
+                updateSliderValue('max_tokens');
+                
+                // Analytics
+                document.getElementById('stat-conversations').textContent = tenantData.analytics.total_conversations;
+                document.getElementById('stat-tokens').textContent = tenantData.analytics.total_tokens;
+                document.getElementById('stat-activity').textContent = tenantData.analytics.last_activity 
+                    ? new Date(tenantData.analytics.last_activity).toLocaleString() 
+                    : 'Never';
+                
+                // Load avatars
+                await loadAvatars();
+                
+                // Load knowledge
+                await loadKnowledge();
+            } catch (e) {
+                console.error('Failed to load tenant:', e);
+                alert('Failed to load tenant data');
+            }
+        }
+
+        async function loadAvatars() {
+            const res = await fetch(`${API_URL}/admin/avatars`);
+            avatarsCache = await res.json();
+            const select = document.getElementById('avatar_select');
+            select.innerHTML = '<option value="">-- Select Avatar --</option>';
+            avatarsCache.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.id;
+                opt.textContent = a.name;
+                opt.dataset.url = a.image_url;
+                if (tenantData.avatar_id === a.id) opt.selected = true;
+                select.appendChild(opt);
+            });
+            previewAvatar();
+        }
+
+        function previewAvatar() {
+            const select = document.getElementById('avatar_select');
+            const preview = document.getElementById('avatar_preview');
+            const selected = select.options[select.selectedIndex];
+            if (selected.dataset.url) {
+                preview.src = selected.dataset.url;
+                preview.style.display = 'block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        async function loadKnowledge() {
+            const res = await fetch(`${API_URL}/admin/tenant/${TENANT_ID}/knowledge`);
+            const knowledge = await res.json();
+            const list = document.getElementById('knowledge-list');
+            list.innerHTML = knowledge.map(k => `
+                <div class="knowledge-item">
+                    <span class="category">${k.category}</span>
+                    <h4>${k.title}</h4>
+                    <p>${k.content}</p>
+                    <button class="btn-secondary" onclick="editKnowledge('${k.id}')">Edit</button>
+                    <button class="btn-danger" onclick="deleteKnowledge('${k.id}')">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        function showSection(section) {
+            ['overview', 'avatar', 'voice', 'knowledge', 'analytics'].forEach(s => {
+                document.getElementById(`section-${s}`).style.display = 'none';
+            });
+            document.getElementById(`section-${section}`).style.display = 'block';
+            document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function updateSliderValue(id) {
+            document.getElementById(`${id}-value`).textContent = document.getElementById(id).value;
+        }
+
+        async function saveBasicInfo() {
+            const data = {
+                company_name: document.getElementById('company_name').value,
+                domain: document.getElementById('domain').value
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('Basic info saved');
+            loadTenantData();
+        }
+
+        async function saveIntroduction() {
+            const data = {
+                introduction_script: document.getElementById('introduction_script').value
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('Introduction saved');
+        }
+
+        async function saveAvatar() {
+            const data = {
+                avatar_id: document.getElementById('avatar_select').value
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('Avatar saved');
+        }
+
+        async function saveVoiceSettings() {
+            const data = {
+                voice_model: document.getElementById('voice_model').value,
+                voice_tone: document.getElementById('voice_tone').value
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('Voice settings saved');
+        }
+
+        async function saveAIParameters() {
+            const data = {
+                temperature: parseFloat(document.getElementById('temperature').value),
+                max_tokens: parseInt(document.getElementById('max_tokens').value)
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('AI parameters saved');
+        }
+
+        async function updateAPIKey() {
+            const key = document.getElementById('openai_api_key').value;
+            if (!key) {
+                alert('Please enter an API key');
+                return;
+            }
+            const data = { openai_api_key: key };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            alert('API key updated');
+            document.getElementById('openai_api_key').value = '';
+        }
+
+        function showKnowledgeForm() {
+            document.getElementById('knowledge-form').style.display = 'block';
+        }
+
+        function hideKnowledgeForm() {
+            document.getElementById('knowledge-form').style.display = 'none';
+            document.getElementById('kb_title').value = '';
+            document.getElementById('kb_content').value = '';
+        }
+
+        async function saveKnowledge() {
+            const data = {
+                category: document.getElementById('kb_category').value,
+                title: document.getElementById('kb_title').value,
+                content: document.getElementById('kb_content').value
+            };
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}/knowledge`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            hideKnowledgeForm();
+            loadKnowledge();
+        }
+
+        async function deleteKnowledge(id) {
+            if (!confirm('Delete this knowledge entry?')) return;
+            await fetch(`${API_URL}/admin/tenant/${TENANT_ID}/knowledge/${id}`, {
+                method: 'DELETE'
+            });
+            loadKnowledge();
+        }
+
+        loadTenantData();
+    </script>
+</body>
+</html>

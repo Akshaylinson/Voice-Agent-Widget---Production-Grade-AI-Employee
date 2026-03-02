@@ -250,7 +250,8 @@
                     <td><span class="status ${t.status}">${t.status}</span></td>
                     <td>${new Date(t.created_at || Date.now()).toLocaleDateString()}</td>
                     <td>
-                        <button onclick="toggleStatus('${t.id}', '${t.status === 'active' ? 'suspended' : 'active'}')">
+                        <button onclick="window.location.href='tenant-dashboard.html?id=${t.id}'" style="background:#10b981; padding:8px 16px; font-size:13px;">Dashboard</button>
+                        <button onclick="toggleStatus('${t.id}', '${t.status === 'active' ? 'suspended' : 'active'}')" style="padding:8px 16px; font-size:13px;">
                             ${t.status === 'active' ? 'Suspend' : 'Activate'}
                         </button>
                     </td>
