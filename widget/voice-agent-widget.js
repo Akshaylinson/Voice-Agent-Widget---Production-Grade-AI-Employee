@@ -1,6 +1,13 @@
 (function() {
     // Configuration
-    const WIDGET_API_URL = window.VOICE_AGENT_API_URL || 'http://localhost:8001/api';
+    const WIDGET_API_URL = window.VOICE_AGENT_API_URL || 'http://localhost:8000/api';
+    const TENANT_ID = window.VOICE_AGENT_TENANT_ID;
+    const SIGNATURE = window.VOICE_AGENT_SIGNATURE;
+    
+    if (!TENANT_ID || !SIGNATURE) {
+        console.error('Voice Agent: Missing tenant credentials');
+        return;
+    }
     
     // Create widget container
     const widgetContainer = document.createElement('div');
@@ -43,7 +50,12 @@
     
     async function loadConfig() {
         try {
-            const res = await fetch(`${WIDGET_API_URL}/config`);
+            const res = await fetch(`${WIDGET_API_URL}/config`, {
+                headers: {
+                    'X-Tenant-ID': TENANT_ID,
+                    'X-Signature': SIGNATURE
+                }
+            });
             const config = await res.json();
             if (config.avatar_url) avatar.innerHTML = `<img src="${config.avatar_url}" alt="AI"><div class="va-status"></div>`;
             if (config.brand_colors?.primary) avatar.style.background = config.brand_colors.primary;
@@ -52,7 +64,12 @@
     
     async function playIntroduction() {
         try {
-            const res = await fetch(`${WIDGET_API_URL}/introduction`);
+            const res = await fetch(`${WIDGET_API_URL}/introduction`, {
+                headers: {
+                    'X-Tenant-ID': TENANT_ID,
+                    'X-Signature': SIGNATURE
+                }
+            });
             if (!res.ok) throw new Error('Failed to fetch intro');
             const blob = await res.blob();
             if (!blob || blob.size === 0) {
@@ -103,7 +120,14 @@
             const fd = new FormData();
             fd.append('audio', blob, 'query.webm');
             if (sessionId) fd.append('session_id', sessionId);
-            const res = await fetch(`${WIDGET_API_URL}/voice-query`, { method: 'POST', body: fd });
+            const res = await fetch(`${WIDGET_API_URL}/voice-query`, { 
+                method: 'POST', 
+                headers: {
+                    'X-Tenant-ID': TENANT_ID,
+                    'X-Signature': SIGNATURE
+                },
+                body: fd 
+            });
             if (!res.ok) throw new Error('Query failed');
             sessionId = res.headers.get('X-Session-ID');
             const responseBlob = await res.blob();

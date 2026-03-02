@@ -4,10 +4,9 @@ from fastapi import Request, HTTPException
 from sqlalchemy.orm import Session
 from models import Tenant
 from cryptography.fernet import Fernet
-import os
+from config import settings
 
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key())
-cipher = Fernet(ENCRYPTION_KEY)
+cipher = Fernet(settings.encryption_key.encode())
 
 def encrypt_api_key(api_key: str) -> str:
     return cipher.encrypt(api_key.encode()).decode()

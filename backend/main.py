@@ -70,8 +70,9 @@ def create_tenant(tenant_data: TenantCreate, db: Session = Depends(get_db)):
         "embed_code": f"""<script>
 window.VOICE_AGENT_TENANT_ID = "{tenant.id}";
 window.VOICE_AGENT_SIGNATURE = "{widget_signature}";
+window.VOICE_AGENT_API_URL = "http://localhost:8000/api";
 </script>
-<script src="https://ai.codeless.ai/widget.js"></script>"""
+<script src="https://codeless-tcr.github.io/vvai/widget.js"></script>"""
     }
 
 @app.get("/admin/tenants")
