@@ -121,6 +121,14 @@
                     <input type="password" id="openai_api_key" required>
                 </div>
                 <div class="form-group">
+                    <label>Avatar (Select from gallery or enter URL)</label>
+                    <select id="avatar_select" onchange="updateAvatarPreview()">
+                        <option value="">-- Select Avatar --</option>
+                    </select>
+                    <input type="text" id="avatar_url_custom" placeholder="Or enter custom URL" style="margin-top:10px;">
+                    <div id="avatar_preview" style="margin-top:10px;"></div>
+                </div>
+                <div class="form-group">
                     <label>Voice Model</label>
                     <select id="voice_model">
                         <option value="nova">Nova (Female)</option>
@@ -160,6 +168,33 @@
         </div>
 
         <div class="card">
+            <h2>📚 Knowledge Base Manager</h2>
+            <div style="margin-bottom:20px;">
+                <label>Select Tenant:</label>
+                <select id="kb_tenant_select" onchange="loadKnowledge()">
+                    <option value="">-- Select Tenant --</option>
+                </select>
+            </div>
+            <button onclick="showKnowledgeForm()">+ Add Knowledge Entry</button>
+            <div id="knowledge-form" style="display:none; margin-top:20px; padding:20px; background:#f9fafb; border-radius:10px;">
+                <select id="kb_category">
+                    <option value="company_overview">Company Overview</option>
+                    <option value="services">Services</option>
+                    <option value="products">Products</option>
+                    <option value="pricing">Pricing</option>
+                    <option value="faq">FAQ</option>
+                    <option value="policies">Policies</option>
+                    <option value="contact">Contact</option>
+                </select>
+                <input type="text" id="kb_title" placeholder="Title" style="margin-top:10px;">
+                <textarea id="kb_content" placeholder="Content" rows="4" style="margin-top:10px;"></textarea>
+                <button onclick="createKnowledge()" style="margin-top:10px;">Save</button>
+                <button onclick="document.getElementById('knowledge-form').style.display='none'" style="background:#6b7280;">Cancel</button>
+            </div>
+            <div id="knowledge-list" style="margin-top:20px;"></div>
+        </div>
+
+        <div class="card">
             <h2>🎭 Avatar Gallery</h2>
             <button onclick="showAvatarForm()">+ Add Avatar</button>
             <div id="avatar-form" style="display:none; margin-top:20px;">
@@ -167,21 +202,26 @@
                 <input type="text" id="avatar_url" placeholder="Image URL">
                 <button onclick="createAvatar()">Create</button>
             </div>
-            <div id="avatars-list" style="margin-top:20px;"></div>
+            <div id="avatars-list" style="margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:15px;"></div>
         </div>
     </div>
 
     <script>
         const API_URL = 'http://localhost:8000';
+        let avatarsCache = [];
 
         document.getElementById('tenant-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const avatarId = document.getElementById('avatar_select').value;
+            const customUrl = document.getElementById('avatar_url_custom').value;
+            
             const data = {
                 company_name: document.getElementById('company_name').value,
                 domain: document.getElementById('domain').value,
                 openai_api_key: document.getElementById('openai_api_key').value,
                 voice_model: document.getElementById('voice_model').value,
-                introduction_script: document.getElementById('introduction_script').value
+                introduction_script: document.getElementById('introduction_script').value,
+                avatar_id: avatarId || null
             };
 
             const res = await fetch(`${API_URL}/admin/tenants`, {
@@ -195,6 +235,7 @@
             document.getElementById('embed-result').style.display = 'block';
             document.getElementById('tenant-form').reset();
             loadTenants();
+            loadKnowledgeTenantsDropdown();
         });
 
         async function loadTenants() {
@@ -234,22 +275,117 @@
             await fetch(`${API_URL}/admin/avatars?name=${name}&image_url=${url}`, {
                 method: 'POST'
             });
+            document.getElementById('avatar_name').value = '';
+            document.getElementById('avatar_url').value = '';
             loadAvatars();
         }
 
         async function loadAvatars() {
             const res = await fetch(`${API_URL}/admin/avatars`);
-            const avatars = await res.json();
-            document.getElementById('avatars-list').innerHTML = avatars.map(a => `
-                <div style="display:inline-block; margin:10px;">
-                    <img src="${a.image_url}" style="width:80px; height:80px; border-radius:50%;">
-                    <p>${a.name}</p>
+            avatarsCache = await res.json();
+            
+            // Update gallery
+            document.getElementById('avatars-list').innerHTML = avatarsCache.map(a => `
+                <div style="text-align:center; padding:10px; background:white; border-radius:10px; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
+                    <img src="${a.image_url}" style="width:80px; height:80px; border-radius:50%; object-fit:cover;">
+                    <p style="margin-top:8px; font-size:12px; font-weight:600;">${a.name}</p>
                 </div>
             `).join('');
+            
+            // Update dropdown
+            const select = document.getElementById('avatar_select');
+            select.innerHTML = '<option value="">-- Select Avatar --</option>' + 
+                avatarsCache.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        }
+
+        function updateAvatarPreview() {
+            const select = document.getElementById('avatar_select');
+            const avatarId = select.value;
+            const preview = document.getElementById('avatar_preview');
+            
+            if (avatarId) {
+                const avatar = avatarsCache.find(a => a.id === avatarId);
+                if (avatar) {
+                    preview.innerHTML = `<img src="${avatar.image_url}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">`;
+                }
+            } else {
+                preview.innerHTML = '';
+            }
+        }
+
+        async function loadKnowledgeTenantsDropdown() {
+            const res = await fetch(`${API_URL}/admin/tenants`);
+            const tenants = await res.json();
+            const select = document.getElementById('kb_tenant_select');
+            select.innerHTML = '<option value="">-- Select Tenant --</option>' + 
+                tenants.map(t => `<option value="${t.id}">${t.company_name}</option>`).join('');
+        }
+
+        function showKnowledgeForm() {
+            const tenantId = document.getElementById('kb_tenant_select').value;
+            if (!tenantId) {
+                alert('Please select a tenant first');
+                return;
+            }
+            document.getElementById('knowledge-form').style.display = 'block';
+        }
+
+        async function createKnowledge() {
+            const tenantId = document.getElementById('kb_tenant_select').value;
+            if (!tenantId) return;
+            
+            const data = {
+                category: document.getElementById('kb_category').value,
+                title: document.getElementById('kb_title').value,
+                content: document.getElementById('kb_content').value
+            };
+            
+            await fetch(`${API_URL}/api/knowledge`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Tenant-ID': tenantId,
+                    'X-Signature': 'admin-override'  // TODO: Proper admin auth
+                },
+                body: JSON.stringify(data)
+            });
+            
+            document.getElementById('kb_title').value = '';
+            document.getElementById('kb_content').value = '';
+            document.getElementById('knowledge-form').style.display = 'none';
+            loadKnowledge();
+        }
+
+        async function loadKnowledge() {
+            const tenantId = document.getElementById('kb_tenant_select').value;
+            if (!tenantId) {
+                document.getElementById('knowledge-list').innerHTML = '';
+                return;
+            }
+            
+            const res = await fetch(`${API_URL}/api/knowledge`, {
+                headers: {
+                    'X-Tenant-ID': tenantId,
+                    'X-Signature': 'admin-override'  // TODO: Proper admin auth
+                }
+            });
+            const knowledge = await res.json();
+            
+            document.getElementById('knowledge-list').innerHTML = knowledge.length ? 
+                '<table style="width:100%; margin-top:10px;"><tr style="background:#667eea; color:white;"><th>Category</th><th>Title</th><th>Content</th></tr>' +
+                knowledge.map(k => `
+                    <tr style="background:white;">
+                        <td style="padding:10px;">${k.category}</td>
+                        <td style="padding:10px; font-weight:600;">${k.title}</td>
+                        <td style="padding:10px;">${k.content.substring(0, 100)}...</td>
+                    </tr>
+                `).join('') + '</table>' :
+                '<p style="color:#6b7280; margin-top:10px;">No knowledge entries yet. Add some to help your AI assistant!</p>';
         }
 
         loadTenants();
         loadAvatars();
+        loadKnowledgeTenantsDropdown();
     </script>
 </body>
 </html>

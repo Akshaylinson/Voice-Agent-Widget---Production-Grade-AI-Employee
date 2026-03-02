@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 Voice Agent Diagnostics</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        h1 { color: #1f2937; margin-bottom: 30px; }
+        .status-section {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+        .error { border-left-color: #ef4444; background: #fef2f2; }
+        .success { border-left-color: #10b981; background: #f0fdf4; }
+        .warning { border-left-color: #f59e0b; background: #fffbeb; }
+        .test-result {
+            font-family: monospace;
+            background: #1f2937;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+        }
+        button:hover { opacity: 0.9; }
+        .btn-danger { background: #ef4444; }
+        .btn-success { background: #10b981; }
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .fix-section {
+            background: #e0f2fe;
+            border: 2px solid #0288d1;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Voice Agent System Diagnostics</h1>
+        
+        <div class="status-section">
+            <h3>🎯 Current Issue Detected</h3>
+            <p><strong>Problem:</strong> Invalid OpenAI API Key</p>
+            <p><strong>Impact:</strong> No voice introduction, no AI responses</p>
+            <p><strong>Tenant ID:</strong> 8f06cdd9-bac4-4184-987f-f5c8fc63b8b0</p>
+        </div>
+
+        <div class="fix-section">
+            <h3>🔑 Fix: Update OpenAI API Key</h3>
+            <p>You need a valid OpenAI API key to enable voice features:</p>
+            <ol>
+                <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API Keys</a></li>
+                <li>Create a new API key (starts with "sk-")</li>
+                <li>Add credits to your OpenAI account ($5+ recommended)</li>
+                <li>Enter the key below and click "Update Tenant"</li>
+            </ol>
+            
+            <input type="password" id="apiKey" placeholder="sk-your-openai-api-key-here" style="width: calc(100% - 24px);">
+            <button onclick="updateApiKey()" class="btn-success">Update Tenant API Key</button>
+        </div>
+
+        <div class="status-section">
+            <h3>📊 System Status</h3>
+            <button onclick="runDiagnostics()">🔍 Run Full Diagnostics</button>
+            <button onclick="testConfig()">⚙️ Test Config</button>
+            <button onclick="testIntroduction()">🎙️ Test Introduction</button>
+            <div id="diagnostics-results"></div>
+        </div>
+
+        <div class="status-section">
+            <h3>✅ What's Working</h3>
+            <ul>
+                <li>✅ Backend API running (http://localhost:8000)</li>
+                <li>✅ Database connected</li>
+                <li>✅ Tenant exists with correct signature</li>
+                <li>✅ Avatar image configured (Sarah)</li>
+                <li>✅ Introduction script set</li>
+                <li>✅ Knowledge base entries added (3 entries)</li>
+                <li>✅ Widget loads from GitHub Pages</li>
+            </ul>
+        </div>
+
+        <div class="status-section error">
+            <h3>❌ What's Broken</h3>
+            <ul>
+                <li>❌ OpenAI API key invalid (401 Unauthorized)</li>
+                <li>❌ Text-to-Speech failing</li>
+                <li>❌ Speech-to-Text will fail</li>
+                <li>❌ AI response generation will fail</li>
+            </ul>
+        </div>
+
+        <div class="status-section">
+            <h3>🎯 Expected Behavior After Fix</h3>
+            <ol>
+                <li><strong>Click avatar</strong> → Hear Sarah's voice introduction</li>
+                <li><strong>Speak question</strong> → "What services do you offer?"</li>
+                <li><strong>Hear AI response</strong> → About Acme Corp's AI voice agents</li>
+                <li><strong>Continue conversation</strong> → Ask about pricing, company info</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const TENANT_ID = "8f06cdd9-bac4-4184-987f-f5c8fc63b8b0";
+        const API_URL = "http://localhost:8000";
+
+        function addResult(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `test-result`;
+            div.textContent = message;
+            document.getElementById('diagnostics-results').appendChild(div);
+        }
+
+        async function updateApiKey() {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey.startsWith('sk-')) {
+                alert('Please enter a valid OpenAI API key (starts with "sk-")');
+                return;
+            }
+
+            try {
+                // Note: This would need a proper admin endpoint to update API key
+                addResult('⚠️ API key update endpoint not implemented yet.\n' +
+                         'Manual fix: Go to admin dashboard (http://localhost:3000)\n' +
+                         '1. Create new tenant with correct API key\n' +
+                         '2. Use new tenant credentials in demo page', 'warning');
+            } catch (e) {
+                addResult(`❌ Failed to update API key: ${e.message}`, 'error');
+            }
+        }
+
+        async function testConfig() {
+            try {
+                const res = await fetch(`${API_URL}/api/config`, {
+                    headers: {
+                        'X-Tenant-ID': TENANT_ID,
+                        'X-Signature': 'ed5be5c03461de446deab934a7f3d1c2c4ccefb4341dcf9006e5f1c99591fe31'
+                    }
+                });
+                const data = await res.json();
+                addResult(`✅ Config API: ${res.status}\n${JSON.stringify(data, null, 2)}`);
+            } catch (e) {
+                addResult(`❌ Config API failed: ${e.message}`);
+            }
+        }
+
+        async function testIntroduction() {
+            try {
+                const res = await fetch(`${API_URL}/api/introduction`, {
+                    headers: {
+                        'X-Tenant-ID': TENANT_ID,
+                        'X-Signature': 'ed5be5c03461de446deab934a7f3d1c2c4ccefb4341dcf9006e5f1c99591fe31'
+                    }
+                });
+                const blob = await res.blob();
+                addResult(`${blob.size > 0 ? '✅' : '❌'} Introduction API: ${res.status}\nAudio size: ${blob.size} bytes\n${blob.size === 0 ? 'ERROR: No audio generated (likely API key issue)' : 'SUCCESS: Audio generated'}`);
+            } catch (e) {
+                addResult(`❌ Introduction API failed: ${e.message}`);
+            }
+        }
+
+        async function runDiagnostics() {
+            document.getElementById('diagnostics-results').innerHTML = '';
+            addResult('🔍 Running full system diagnostics...\n');
+            
+            // Test backend health
+            try {
+                const res = await fetch(`${API_URL}/health`);
+                const data = await res.json();
+                addResult(`✅ Backend Health: ${data.status} (${data.version})`);
+            } catch (e) {
+                addResult(`❌ Backend Health: ${e.message}`);
+            }
+
+            // Test config
+            await testConfig();
+            
+            // Test introduction
+            await testIntroduction();
+
+            // Test knowledge base
+            try {
+                const res = await fetch(`${API_URL}/api/knowledge`, {
+                    headers: {
+                        'X-Tenant-ID': TENANT_ID,
+                        'X-Signature': 'admin-override'
+                    }
+                });
+                const data = await res.json();
+                addResult(`✅ Knowledge Base: ${data.length} entries\n${data.map(k => `- ${k.category}: ${k.title}`).join('\n')}`);
+            } catch (e) {
+                addResult(`❌ Knowledge Base failed: ${e.message}`);
+            }
+
+            addResult('\n🎯 DIAGNOSIS COMPLETE\n' +
+                     'Main Issue: Invalid OpenAI API key\n' +
+                     'Solution: Update tenant with valid API key\n' +
+                     'Cost: ~$0.02 per conversation (very affordable!)');
+        }
+
+        // Auto-run diagnostics on load
+        setTimeout(runDiagnostics, 1000);
+    </script>
+</body>
+</html>

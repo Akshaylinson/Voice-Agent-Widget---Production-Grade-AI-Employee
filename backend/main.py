@@ -6,10 +6,19 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 from datetime import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 from database import init_db, get_db
 from models import Tenant, Avatar, KnowledgeBase, Conversation
 from tenant_middleware import get_tenant_context, encrypt_api_key, decrypt_api_key
+from openai_service import transcribe_audio, generate_response, text_to_speech
 import hmac
 import hashlib
 
@@ -86,6 +95,15 @@ def update_tenant_status(tenant_id: str, status: str, db: Session = Depends(get_
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     tenant.status = status
+    db.commit()
+    return {"status": "updated"}
+
+@app.put("/admin/tenants/{tenant_id}/avatar")
+def update_tenant_avatar(tenant_id: str, avatar_id: str, db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    tenant.avatar_id = avatar_id
     db.commit()
     return {"status": "updated"}
 
@@ -176,6 +194,100 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
         Conversation.tenant_id == tenant.id
     ).order_by(Conversation.created_at.desc()).limit(limit).all()
     return [{"transcript": c.transcript, "response": c.response, "created_at": c.created_at} for c in conversations]
+
+@app.get("/api/introduction")
+async def get_introduction(request: Request, db: Session = Depends(get_db)):
+    logger.info(f"[INTRODUCTION] Request from {request.headers.get('Origin')}")
+    
+    tenant = await get_tenant_context(request, db)
+    logger.info(f"[INTRODUCTION] Tenant resolved: {tenant.company_name}")
+    
+    # Generate introduction audio
+    if tenant.introduction_script:
+        try:
+            audio_bytes = await text_to_speech(
+                tenant.introduction_script,
+                tenant.voice_model or "nova",
+                tenant.decrypted_api_key
+            )
+            from fastapi.responses import Response
+            return Response(content=audio_bytes, media_type="audio/mpeg")
+        except Exception as e:
+            logger.error(f"[INTRODUCTION] TTS failed: {e}")
+    
+    # Return empty if no script or TTS fails
+    from fastapi.responses import Response
+    return Response(content=b"", media_type="audio/mpeg")
+
+@app.post("/api/voice-query")
+async def voice_query(request: Request, db: Session = Depends(get_db)):
+    logger.info(f"[VOICE-QUERY] Request from {request.headers.get('Origin')}")
+    
+    tenant = await get_tenant_context(request, db)
+    logger.info(f"[VOICE-QUERY] Tenant resolved: {tenant.company_name}")
+    
+    # Parse form data
+    form = await request.form()
+    audio_file = form.get("audio")
+    session_id = form.get("session_id") or str(uuid.uuid4())
+    
+    if not audio_file:
+        raise HTTPException(status_code=400, detail="No audio file provided")
+    
+    try:
+        # Read audio bytes
+        audio_bytes = await audio_file.read()
+        logger.info(f"[VOICE-QUERY] Audio size: {len(audio_bytes)} bytes")
+        
+        # Step 1: Transcribe audio (Whisper)
+        transcript = await transcribe_audio(audio_bytes, tenant.decrypted_api_key)
+        
+        # Step 2: Get knowledge base
+        knowledge = db.query(KnowledgeBase).filter(
+            KnowledgeBase.tenant_id == tenant.id,
+            KnowledgeBase.is_active == True
+        ).all()
+        knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
+        
+        # Step 3: Generate response (GPT-4)
+        response_text = await generate_response(
+            transcript,
+            knowledge_context,
+            tenant.company_name,
+            tenant.decrypted_api_key
+        )
+        
+        # Step 4: Convert to speech (TTS)
+        response_audio = await text_to_speech(
+            response_text,
+            tenant.voice_model or "nova",
+            tenant.decrypted_api_key
+        )
+        
+        # Step 5: Save conversation
+        conversation = Conversation(
+            tenant_id=tenant.id,
+            session_id=session_id,
+            transcript=transcript,
+            response=response_text,
+            token_usage=0,  # TODO: track actual tokens
+            duration=0.0
+        )
+        db.add(conversation)
+        db.commit()
+        
+        logger.info(f"[VOICE-QUERY] Success: {response_text[:100]}...")
+        
+        from fastapi.responses import Response
+        return Response(
+            content=response_audio,
+            media_type="audio/mpeg",
+            headers={"X-Session-ID": session_id}
+        )
+        
+    except Exception as e:
+        logger.error(f"[VOICE-QUERY] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 def health_check():
