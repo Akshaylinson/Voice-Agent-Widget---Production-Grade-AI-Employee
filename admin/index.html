@@ -96,6 +96,117 @@
             overflow-x: auto;
             margin-top: 10px;
         }
+        
+        /* Avatar Card Styles */
+        .avatar-card {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+        .avatar-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+        .avatar-card img {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-bottom: 10px;
+            border: 3px solid #e5e7eb;
+        }
+        .avatar-card p {
+            margin: 8px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .avatar-card .actions {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .avatar-card .actions button {
+            padding: 6px 12px;
+            font-size: 12px;
+            margin: 0;
+        }
+        .btn-edit {
+            background: #10b981 !important;
+        }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-content h3 {
+            color: #1f2937;
+            margin-bottom: 20px;
+        }
+        .modal-preview {
+            text-align: center;
+            margin: 15px 0;
+        }
+        .modal-preview img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #e5e7eb;
+        }
+        
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 2000;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.active {
+            display: block;
+        }
+        .toast.success {
+            border-left: 4px solid #10b981;
+        }
+        .toast.error {
+            border-left: 4px solid #ef4444;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -197,14 +308,48 @@
         <div class="card">
             <h2>🎭 Avatar Gallery</h2>
             <button onclick="showAvatarForm()">+ Add Avatar</button>
-            <div id="avatar-form" style="display:none; margin-top:20px;">
+            <div id="avatar-form" style="display:none; margin-top:20px; padding:20px; background:#f9fafb; border-radius:10px;">
                 <input type="text" id="avatar_name" placeholder="Avatar Name">
-                <input type="text" id="avatar_url" placeholder="Image URL">
-                <button onclick="createAvatar()">Create</button>
+                <input type="text" id="avatar_url" placeholder="Image URL" style="margin-top:10px;">
+                <button onclick="createAvatar()" style="margin-top:10px;">Create</button>
+                <button onclick="document.getElementById('avatar-form').style.display='none'" style="background:#6b7280;">Cancel</button>
             </div>
-            <div id="avatars-list" style="margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:15px;"></div>
+            <div id="avatars-list" style="margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:15px;"></div>
         </div>
     </div>
+
+    <!-- Edit Avatar Modal -->
+    <div id="edit-avatar-modal" class="modal">
+        <div class="modal-content">
+            <h3>Edit Avatar</h3>
+            <div class="form-group">
+                <label>Avatar Name</label>
+                <input type="text" id="edit_avatar_name">
+            </div>
+            <div class="form-group">
+                <label>Image URL</label>
+                <input type="text" id="edit_avatar_url" oninput="updateEditPreview()">
+            </div>
+            <div class="modal-preview">
+                <img id="edit_avatar_preview" src="" alt="Preview" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23e5e7eb%22 width=%22100%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%236b7280%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+            </div>
+            <button onclick="saveAvatarEdit()">Save Changes</button>
+            <button onclick="closeEditModal()" style="background:#6b7280;">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-avatar-modal" class="modal">
+        <div class="modal-content">
+            <h3>Delete Avatar</h3>
+            <p style="color:#6b7280; margin-bottom:20px;">Are you sure you want to delete this avatar? This action cannot be undone.</p>
+            <button onclick="confirmDeleteAvatar()" class="btn-danger">Delete</button>
+            <button onclick="closeDeleteModal()" style="background:#6b7280;">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
 
     <script>
         const API_URL = 'http://localhost:8000';
@@ -273,23 +418,135 @@
         async function createAvatar() {
             const name = document.getElementById('avatar_name').value;
             const url = document.getElementById('avatar_url').value;
-            await fetch(`${API_URL}/admin/avatars?name=${name}&image_url=${url}`, {
-                method: 'POST'
-            });
-            document.getElementById('avatar_name').value = '';
-            document.getElementById('avatar_url').value = '';
-            loadAvatars();
+            
+            if (!name || !url) {
+                showToast('Please fill all fields', 'error');
+                return;
+            }
+            
+            try {
+                await fetch(`${API_URL}/admin/avatars?name=${encodeURIComponent(name)}&image_url=${encodeURIComponent(url)}`, {
+                    method: 'POST'
+                });
+                document.getElementById('avatar_name').value = '';
+                document.getElementById('avatar_url').value = '';
+                document.getElementById('avatar-form').style.display = 'none';
+                await loadAvatars();
+                showToast('Avatar created successfully', 'success');
+            } catch (e) {
+                showToast('Failed to create avatar', 'error');
+            }
         }
+
+        let editingAvatarId = null;
+
+        function editAvatar(avatarId) {
+            const avatar = avatarsCache.find(a => a.id === avatarId);
+            if (!avatar) return;
+            
+            editingAvatarId = avatarId;
+            document.getElementById('edit_avatar_name').value = avatar.name;
+            document.getElementById('edit_avatar_url').value = avatar.image_url;
+            document.getElementById('edit_avatar_preview').src = avatar.image_url;
+            document.getElementById('edit-avatar-modal').classList.add('active');
+        }
+
+        function updateEditPreview() {
+            const url = document.getElementById('edit_avatar_url').value;
+            document.getElementById('edit_avatar_preview').src = url;
+        }
+
+        async function saveAvatarEdit() {
+            const name = document.getElementById('edit_avatar_name').value;
+            const url = document.getElementById('edit_avatar_url').value;
+            
+            if (!name || !url) {
+                showToast('Please fill all fields', 'error');
+                return;
+            }
+            
+            try {
+                await fetch(`${API_URL}/admin/avatar/${editingAvatarId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, image_url: url })
+                });
+                closeEditModal();
+                await loadAvatars();
+                showToast('Avatar updated successfully', 'success');
+            } catch (e) {
+                showToast('Failed to update avatar', 'error');
+            }
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-avatar-modal').classList.remove('active');
+            editingAvatarId = null;
+        }
+
+        let deletingAvatarId = null;
+
+        function deleteAvatar(avatarId) {
+            deletingAvatarId = avatarId;
+            document.getElementById('delete-avatar-modal').classList.add('active');
+        }
+
+        async function confirmDeleteAvatar() {
+            try {
+                const res = await fetch(`${API_URL}/admin/avatar/${deletingAvatarId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!res.ok) {
+                    const error = await res.json();
+                    showToast(error.detail || 'Failed to delete avatar', 'error');
+                    closeDeleteModal();
+                    return;
+                }
+                
+                closeDeleteModal();
+                await loadAvatars();
+                showToast('Avatar deleted successfully', 'success');
+            } catch (e) {
+                showToast('Failed to delete avatar', 'error');
+            }
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('delete-avatar-modal').classList.remove('active');
+            deletingAvatarId = null;
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} active`;
+            setTimeout(() => {
+                toast.classList.remove('active');
+            }, 3000);
+        }
+
+        // Close modals on outside click
+        document.getElementById('edit-avatar-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'edit-avatar-modal') closeEditModal();
+        });
+        document.getElementById('delete-avatar-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'delete-avatar-modal') closeDeleteModal();
+        });
 
         async function loadAvatars() {
             const res = await fetch(`${API_URL}/admin/avatars`);
             avatarsCache = await res.json();
             
-            // Update gallery
+            // Update gallery with edit/delete buttons
             document.getElementById('avatars-list').innerHTML = avatarsCache.map(a => `
-                <div style="text-align:center; padding:10px; background:white; border-radius:10px; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
-                    <img src="${a.image_url}" style="width:80px; height:80px; border-radius:50%; object-fit:cover;">
-                    <p style="margin-top:8px; font-size:12px; font-weight:600;">${a.name}</p>
+                <div class="avatar-card">
+                    <img src="${a.image_url}" alt="${a.name}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22%3E%3Crect fill=%22%23e5e7eb%22 width=%2280%22 height=%2280%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%236b7280%22 font-size=%2212%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                    <p>${a.name}</p>
+                    <div class="actions">
+                        <button class="btn-edit" onclick="editAvatar('${a.id}')">Edit</button>
+                        <button class="btn-danger" onclick="deleteAvatar('${a.id}')">Delete</button>
+                    </div>
                 </div>
             `).join('');
             

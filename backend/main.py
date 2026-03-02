@@ -254,6 +254,43 @@ def list_avatars(db: Session = Depends(get_db)):
     avatars = db.query(Avatar).all()
     return [{"id": str(a.id), "name": a.name, "image_url": a.image_url} for a in avatars]
 
+class AvatarUpdate(BaseModel):
+    name: Optional[str] = None
+    image_url: Optional[str] = None
+    default_voice: Optional[str] = None
+
+@app.put("/admin/avatar/{avatar_id}")
+def update_avatar(avatar_id: str, data: AvatarUpdate, db: Session = Depends(get_db)):
+    avatar = db.query(Avatar).filter(Avatar.id == avatar_id).first()
+    if not avatar:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    if data.name: avatar.name = data.name
+    if data.image_url: avatar.image_url = data.image_url
+    if data.default_voice: avatar.default_voice = data.default_voice
+    
+    db.commit()
+    return {"status": "updated", "id": str(avatar.id)}
+
+@app.delete("/admin/avatar/{avatar_id}")
+def delete_avatar(avatar_id: str, db: Session = Depends(get_db)):
+    # Check if avatar is assigned to any tenant
+    tenant_count = db.query(Tenant).filter(Tenant.avatar_id == avatar_id).count()
+    
+    if tenant_count > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Avatar is currently assigned to {tenant_count} tenant(s). Cannot delete."
+        )
+    
+    avatar = db.query(Avatar).filter(Avatar.id == avatar_id).first()
+    if not avatar:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    db.delete(avatar)
+    db.commit()
+    return {"status": "deleted"}
+
 # Tenant-Aware Public Endpoints
 @app.get("/api/config")
 async def get_config(request: Request, db: Session = Depends(get_db)):
