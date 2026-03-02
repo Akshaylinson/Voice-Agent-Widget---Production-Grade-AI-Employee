@@ -1,12 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import uuid
 from datetime import datetime
 import logging
+import os
+import shutil
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +26,14 @@ import hmac
 import hashlib
 
 app = FastAPI(title="Multi-Tenant Voice Agent API")
+
+# Ensure uploads directory exists
+UPLOADS_DIR = "uploads"
+if not os.path.exists(UPLOADS_DIR):
+    os.makedirs(UPLOADS_DIR)
+
+# Mount static files for serving uploaded avatars
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,
@@ -241,6 +252,35 @@ def update_tenant_avatar(tenant_id: str, avatar_id: str, db: Session = Depends(g
     return {"status": "updated"}
 
 # Avatar Management
+@app.post("/admin/upload-avatar")
+async def upload_avatar(request: Request, file: UploadFile = File(...)):
+    """Upload avatar image and return backend URL"""
+    try:
+        # Validate file type
+        allowed_extensions = {"jpg", "jpeg", "png", "webp", "gif"}
+        file_ext = file.filename.split(".")[-1].lower()
+        
+        if file_ext not in allowed_extensions:
+            raise HTTPException(status_code=400, detail="Invalid file type. Allowed: jpg, jpeg, png, webp, gif")
+        
+        # Generate unique filename
+        unique_name = f"{uuid.uuid4()}.{file_ext}"
+        file_path = os.path.join(UPLOADS_DIR, unique_name)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Return backend URL
+        base_url = str(request.base_url).rstrip("/")
+        return {
+            "url": f"{base_url}/uploads/{unique_name}",
+            "filename": unique_name
+        }
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/admin/avatars")
 def create_avatar(name: str, image_url: str, default_voice: str = "nova", db: Session = Depends(get_db)):
     avatar = Avatar(name=name, image_url=image_url, default_voice=default_voice)

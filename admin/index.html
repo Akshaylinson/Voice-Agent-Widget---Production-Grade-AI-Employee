@@ -310,7 +310,12 @@
             <button onclick="showAvatarForm()">+ Add Avatar</button>
             <div id="avatar-form" style="display:none; margin-top:20px; padding:20px; background:#f9fafb; border-radius:10px;">
                 <input type="text" id="avatar_name" placeholder="Avatar Name">
-                <input type="text" id="avatar_url" placeholder="Image URL" style="margin-top:10px;">
+                <div style="margin-top:10px;">
+                    <label style="display:block; margin-bottom:5px; font-size:14px; color:#374151;">Upload Image</label>
+                    <input type="file" id="avatar_file" accept="image/*" style="padding:8px;">
+                    <input type="text" id="avatar_url" placeholder="Or enter image URL" style="margin-top:10px; display:none;">
+                </div>
+                <div id="create_avatar_preview" style="margin-top:10px; text-align:center;"></div>
                 <button onclick="createAvatar()" style="margin-top:10px;">Create</button>
                 <button onclick="document.getElementById('avatar-form').style.display='none'" style="background:#6b7280;">Cancel</button>
             </div>
@@ -327,11 +332,12 @@
                 <input type="text" id="edit_avatar_name">
             </div>
             <div class="form-group">
-                <label>Image URL</label>
-                <input type="text" id="edit_avatar_url" oninput="updateEditPreview()">
+                <label>Upload New Image</label>
+                <input type="file" id="edit_avatar_file" accept="image/*" style="padding:8px;">
+                <input type="hidden" id="edit_avatar_url">
             </div>
             <div class="modal-preview">
-                <img id="edit_avatar_preview" src="" alt="Preview" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23e5e7eb%22 width=%22100%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%236b7280%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                <img id="edit_avatar_preview" src="" alt="Preview">
             </div>
             <button onclick="saveAvatarEdit()">Save Changes</button>
             <button onclick="closeEditModal()" style="background:#6b7280;">Cancel</button>
@@ -413,27 +419,71 @@
 
         function showAvatarForm() {
             document.getElementById('avatar-form').style.display = 'block';
+            document.getElementById('avatar_file').value = '';
+            document.getElementById('avatar_name').value = '';
+            document.getElementById('create_avatar_preview').innerHTML = '';
         }
+
+        // Preview uploaded file before creating avatar
+        document.getElementById('avatar_file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('create_avatar_preview').innerHTML = 
+                        `<img src="${e.target.result}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid #e5e7eb;">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
 
         async function createAvatar() {
             const name = document.getElementById('avatar_name').value;
-            const url = document.getElementById('avatar_url').value;
+            const fileInput = document.getElementById('avatar_file');
+            const file = fileInput.files[0];
             
-            if (!name || !url) {
-                showToast('Please fill all fields', 'error');
+            if (!name) {
+                showToast('Please enter avatar name', 'error');
+                return;
+            }
+            
+            if (!file) {
+                showToast('Please select an image file', 'error');
                 return;
             }
             
             try {
-                await fetch(`${API_URL}/admin/avatars?name=${encodeURIComponent(name)}&image_url=${encodeURIComponent(url)}`, {
+                // Upload file first
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                showToast('Uploading image...', 'success');
+                
+                const uploadRes = await fetch(`${API_URL}/admin/upload-avatar`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!uploadRes.ok) {
+                    throw new Error('Upload failed');
+                }
+                
+                const uploadData = await uploadRes.json();
+                const imageUrl = uploadData.url;
+                
+                // Create avatar with uploaded URL
+                await fetch(`${API_URL}/admin/avatars?name=${encodeURIComponent(name)}&image_url=${encodeURIComponent(imageUrl)}`, {
                     method: 'POST'
                 });
+                
                 document.getElementById('avatar_name').value = '';
-                document.getElementById('avatar_url').value = '';
+                document.getElementById('avatar_file').value = '';
+                document.getElementById('create_avatar_preview').innerHTML = '';
                 document.getElementById('avatar-form').style.display = 'none';
                 await loadAvatars();
                 showToast('Avatar created successfully', 'success');
             } catch (e) {
+                console.error('Create avatar error:', e);
                 showToast('Failed to create avatar', 'error');
             }
         }
@@ -447,14 +497,52 @@
             editingAvatarId = avatarId;
             document.getElementById('edit_avatar_name').value = avatar.name;
             document.getElementById('edit_avatar_url').value = avatar.image_url;
-            document.getElementById('edit_avatar_preview').src = avatar.image_url;
+            document.getElementById('edit_avatar_file').value = '';
+            
+            const preview = document.getElementById('edit_avatar_preview');
+            preview.src = avatar.image_url;
+            preview.onerror = function() {
+                console.error('Failed to load image:', avatar.image_url);
+                this.style.border = '3px dashed #ef4444';
+            };
+            preview.onload = function() {
+                this.style.border = '3px solid #e5e7eb';
+            };
+            
             document.getElementById('edit-avatar-modal').classList.add('active');
         }
 
-        function updateEditPreview() {
-            const url = document.getElementById('edit_avatar_url').value;
-            document.getElementById('edit_avatar_preview').src = url;
-        }
+        // Preview uploaded file in edit modal
+        document.getElementById('edit_avatar_file').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            try {
+                // Upload file
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                showToast('Uploading image...', 'success');
+                
+                const uploadRes = await fetch(`${API_URL}/admin/upload-avatar`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!uploadRes.ok) throw new Error('Upload failed');
+                
+                const uploadData = await uploadRes.json();
+                
+                // Update preview and hidden URL field
+                document.getElementById('edit_avatar_url').value = uploadData.url;
+                document.getElementById('edit_avatar_preview').src = uploadData.url;
+                
+                showToast('Image uploaded', 'success');
+            } catch (e) {
+                console.error('Upload error:', e);
+                showToast('Upload failed', 'error');
+            }
+        });
 
         async function saveAvatarEdit() {
             const name = document.getElementById('edit_avatar_name').value;
