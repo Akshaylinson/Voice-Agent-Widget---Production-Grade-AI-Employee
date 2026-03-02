@@ -1,0 +1,118 @@
+🐳 Docker Commands to Run the Project
+Step 1: Setup Environment
+cd "e:\AI_INFLUC_ SAAS\voice-agent-per_db(gpt-auido-mini)"
+copy .env.example .env
+
+
+
+bash
+Edit .env and add your OpenAI API key:
+
+OPENAI_API_KEY=sk-your-key-here
+JWT_SECRET=your-secret-123
+
+
+
+
+Step 2: Run with Docker Compose
+docker-compose up -d
+
+
+
+
+bash
+This starts:
+
+Backend API (port 8001)
+
+PostgreSQL database
+
+Admin dashboard (port 3000)
+
+Step 3: Verify Running
+docker ps
+
+
+
+Step 4: View Logs
+docker logs voice-agent-client1
+docker logs db-client1
+
+
+bash
+Step 5: Stop
+docker-compose down
+
+
+bash
+Alternative: Manual Docker Commands
+Create Network
+docker network create client1-network
+
+
+bash
+Start Database
+docker run -d ^
+  --name db-client1 ^
+  --network client1-network ^
+  -e POSTGRES_DB=voice_agent ^
+  -e POSTGRES_USER=postgres ^
+  -e POSTGRES_PASSWORD=postgres ^
+  -v client1-db-data:/var/lib/postgresql/data ^
+  postgres:15-alpine
+
+
+bash
+Build Backend
+docker build -t voice-agent:latest ./backend
+
+
+bash
+Start Backend
+docker run -d ^
+  --name voice-agent-client1 ^
+  --network client1-network ^
+  -p 8001:8000 ^
+  -e CLIENT_ID=client1 ^
+  -e DATABASE_URL=postgresql://postgres:postgres@db-client1:5432/voice_agent ^
+  -e OPENAI_API_KEY=your-key-here ^
+  -e JWT_SECRET=your-secret ^
+  voice-agent:latest
+
+
+bash
+Start Admin Dashboard
+docker build -t admin-dashboard:latest ./admin
+
+docker run -d ^
+  --name admin-dashboard ^
+  -p 3000:80 ^
+  admin-dashboard:latest
+
+
+bash
+Access Points
+Admin Dashboard: http://localhost:3000
+
+API: http://localhost:8001/api
+
+Health Check: http://localhost:8001/health
+
+Widget: http://localhost:8001/voice-agent-widget.js
+
+Quick Commands
+# Start everything
+docker-compose up -d
+
+# Stop everything
+docker-compose down
+
+# Restart
+docker-compose restart
+
+# View logs
+docker-compose logs -f
+
+# Remove everything (including data)
+docker-compose down -v
+

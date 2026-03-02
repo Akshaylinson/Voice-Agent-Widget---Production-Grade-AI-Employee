@@ -1,0 +1,337 @@
+Multi-Tenant AI Voice Platform (Enterprise Upgrade)
+1️⃣ Objective
+
+Convert the existing single-client Voice Agent project into a multi-tenant enterprise SaaS platform owned and operated by Codeless Technologies.
+
+Core Principles
+
+One shared infrastructure
+
+Single PostgreSQL database
+
+Strict tenant isolation via tenant_id
+
+Per-tenant OpenAI API keys
+
+Centralized master admin (Codeless only)
+
+Widget-based client integration
+
+Docker-based production deployment
+
+2️⃣ System Overview (New Architecture)
+                         ┌──────────────────────────┐
+                         │  Codeless Master Admin   │
+                         │  (Internal Dashboard)    │
+                         └──────────────┬───────────┘
+                                        │
+                                        ▼
+          ┌────────────────────────────────────────────────┐
+          │            Multi-Tenant Backend                │
+          │ FastAPI + OpenAI Realtime + Tenant Middleware  │
+          │                                                │
+          │  - Tenant Resolution Layer                     │
+          │  - API Key Injection Layer                     │
+          │  - RBAC (Master Only)                          │
+          │  - Rate Limiting (per tenant)                  │
+          └───────────────┬────────────────────────────────┘
+                          │
+                          ▼
+                 PostgreSQL (Single DB)
+              All tables include tenant_id
+3️⃣ Tenant Model
+
+Each company = one tenant.
+
+Isolation is enforced by:
+
+tenant_id column in every data table
+
+Middleware validation on every API request
+
+Per-tenant OpenAI API key stored securely
+
+Origin validation for widget calls
+
+4️⃣ Database Schema (Multi-Tenant)
+4.1 tenants
+Field	Type	Description
+id	UUID	Primary Tenant ID
+company_name	string	Company Name
+domain	string	Allowed domain
+avatar_id	UUID	Selected avatar
+introduction_script	text	Greeting
+voice_model	string	OpenAI voice
+openai_api_key_encrypted	text	Tenant-specific key
+status	active/suspended	
+created_at	timestamp	
+4.2 knowledge_base
+Field	Type
+id	UUID
+tenant_id	UUID
+category	string
+title	string
+content	text
+4.3 conversations
+Field	Type
+id	UUID
+tenant_id	UUID
+session_id	string
+transcript	text
+response	text
+token_usage	integer
+duration	float
+created_at	timestamp
+4.4 avatars
+Field	Type
+id	UUID
+name	string
+image_url	string
+default_voice	string
+personality_prompt	text
+5️⃣ Tenant Resolution Strategy
+
+All widget requests must include:
+
+Headers:
+X-Tenant-ID: <uuid>
+X-Signature: <hmac_signature>
+
+Backend middleware:
+
+Validate tenant exists
+
+Validate signature
+
+Validate request origin
+
+Inject tenant-specific OpenAI API key
+
+Attach tenant context to request
+
+No API call is processed without valid tenant context.
+
+6️⃣ Per-Tenant OpenAI API Keys
+
+Each tenant has:
+
+Separate OpenAI API key
+
+Stored encrypted in database
+
+Decrypted only during request processing
+
+Used exclusively for that tenant’s requests
+
+Example logic:
+
+openai_client = OpenAI(api_key=tenant.api_key)
+
+This ensures:
+
+No cross-billing
+
+No cross-token leakage
+
+Independent usage tracking
+
+7️⃣ Admin Control Model
+
+Currently:
+
+Only Codeless has dashboard access
+
+Clients do not log in
+
+Codeless manages:
+
+Tenant creation
+
+Avatar assignment
+
+Knowledge base
+
+API key configuration
+
+Activation / suspension
+
+Future (Phase 2):
+
+Tenant self-service dashboard
+
+Subscription billing
+
+8️⃣ Widget Deployment Model
+
+Clients only receive:
+
+<script>
+window.VOICE_AGENT_TENANT_ID = "uuid";
+window.VOICE_AGENT_SIGNATURE = "generated_signature";
+</script>
+<script src="https://ai.codeless.ai/widget.js"></script>
+
+Client responsibility:
+
+Paste script into website
+
+Codeless responsibility:
+
+Infrastructure
+
+AI processing
+
+Logging
+
+Scaling
+
+Security
+
+Monitoring
+
+9️⃣ Landing Page (Demo Version)
+Sections
+
+Hero: “AI Employee for Your Website”
+
+Avatar Gallery
+
+Avatar Selection
+
+Copy Widget Script
+
+Documentation
+
+No billing integration yet.
+
+🔟 API Structure (Tenant-Aware)
+POST /api/voice-query
+GET  /api/config
+GET  /api/introduction
+GET  /api/conversations
+
+All endpoints require:
+
+Tenant header
+
+Signature validation
+
+11️⃣ Security Enhancements
+
+Mandatory enterprise additions:
+
+HMAC signature validation
+
+Per-tenant rate limiting
+
+Origin domain enforcement
+
+Encrypted API keys
+
+Structured logging
+
+Token usage tracking
+
+Abuse detection
+
+12️⃣ Docker Deployment Model
+
+Single stack:
+
+docker-compose.yml
+  - backend
+  - postgres
+  - redis (optional)
+
+All tenants run in same backend container.
+
+Isolation enforced at:
+
+Application layer
+
+Database row level
+
+Middleware validation
+
+13️⃣ Scaling Strategy
+
+Short-term:
+
+Single VPS
+
+Vertical scaling
+
+Mid-term:
+
+Load balancer
+
+Multiple backend replicas
+
+Shared DB
+
+Long-term:
+
+Kubernetes
+
+Optional dedicated deployment tier for enterprise clients
+
+14️⃣ Implementation Roadmap
+Phase 1 – Database Refactor
+
+Add tenant_id everywhere
+
+Create tenants table
+
+Migrate existing single client to tenant record
+
+Phase 2 – Middleware
+
+Build tenant validation layer
+
+Build API key injection layer
+
+Phase 3 – Admin Dashboard
+
+Tenant CRUD
+
+API key management
+
+Avatar assignment
+
+Phase 4 – Widget Security
+
+HMAC signature system
+
+Domain validation
+
+Phase 5 – Logging & Analytics
+
+Token usage per tenant
+
+Conversation metrics
+
+15️⃣ Enterprise Guarantees
+
+✔ Strict tenant isolation
+✔ Separate API billing
+✔ No context leakage
+✔ Centralized management
+✔ Docker-native deployment
+✔ Future-ready for subscription billing
+
+16️⃣ Risk Considerations
+
+API key misuse if not encrypted
+
+Widget script copying between domains
+
+High token cost if rate limiting absent
+
+Missing usage caps before billing launch
+
+Mitigation required before public release.
+
+17️⃣ Versioning
+
+Current Version:
+v2.0 – Multi-Tenant Enterprise Conversion

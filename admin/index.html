@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codeless AI - Master Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { 
+            background: rgba(255,255,255,0.95); 
+            border-radius: 20px; 
+            padding: 30px; 
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        .header h1 { color: #1f2937; margin-bottom: 10px; }
+        .header p { color: #6b7280; }
+        
+        .card { 
+            background: rgba(255,255,255,0.95); 
+            border-radius: 20px; 
+            padding: 30px; 
+            margin-bottom: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        .card h2 { color: #1f2937; margin-bottom: 20px; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: #374151; 
+            font-weight: 600;
+        }
+        input, textarea, select { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #e5e7eb; 
+            border-radius: 10px; 
+            font-size: 14px;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button { 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            font-weight: 600;
+            margin-right: 10px;
+        }
+        button:hover { opacity: 0.9; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td { padding: 12px; text-align: left; }
+        th { 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+        }
+        tr:nth-child(even) { background: #f9fafb; }
+        
+        .status { 
+            padding: 4px 12px; 
+            border-radius: 12px; 
+            font-size: 12px; 
+            font-weight: 600;
+        }
+        .status.active { background: #d1fae5; color: #065f46; }
+        .status.suspended { background: #fee2e2; color: #991b1b; }
+        
+        .code-block {
+            background: #1f2937;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Codeless AI - Master Admin</h1>
+            <p>Multi-Tenant Voice Agent Platform Management</p>
+        </div>
+
+        <div class="card">
+            <h2>➕ Create New Tenant</h2>
+            <form id="tenant-form">
+                <div class="form-group">
+                    <label>Company Name</label>
+                    <input type="text" id="company_name" required>
+                </div>
+                <div class="form-group">
+                    <label>Domain</label>
+                    <input type="text" id="domain" placeholder="example.com" required>
+                </div>
+                <div class="form-group">
+                    <label>OpenAI API Key</label>
+                    <input type="password" id="openai_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label>Voice Model</label>
+                    <select id="voice_model">
+                        <option value="nova">Nova (Female)</option>
+                        <option value="shimmer">Shimmer (Female)</option>
+                        <option value="alloy">Alloy (Male)</option>
+                        <option value="echo">Echo (Male)</option>
+                        <option value="onyx">Onyx (Male)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Introduction Script</label>
+                    <textarea id="introduction_script" rows="3" placeholder="Hello! I'm your AI assistant..."></textarea>
+                </div>
+                <button type="submit">Create Tenant</button>
+            </form>
+            <div id="embed-result" style="display:none; margin-top:20px;">
+                <h3>Widget Embed Code:</h3>
+                <div class="code-block" id="embed-code"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📊 Active Tenants</h2>
+            <table id="tenants-table">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Domain</th>
+                        <th>Voice Model</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>🎭 Avatar Gallery</h2>
+            <button onclick="showAvatarForm()">+ Add Avatar</button>
+            <div id="avatar-form" style="display:none; margin-top:20px;">
+                <input type="text" id="avatar_name" placeholder="Avatar Name">
+                <input type="text" id="avatar_url" placeholder="Image URL">
+                <button onclick="createAvatar()">Create</button>
+            </div>
+            <div id="avatars-list" style="margin-top:20px;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+
+        document.getElementById('tenant-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                company_name: document.getElementById('company_name').value,
+                domain: document.getElementById('domain').value,
+                openai_api_key: document.getElementById('openai_api_key').value,
+                voice_model: document.getElementById('voice_model').value,
+                introduction_script: document.getElementById('introduction_script').value
+            };
+
+            const res = await fetch(`${API_URL}/admin/tenants`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await res.json();
+            document.getElementById('embed-code').textContent = result.embed_code;
+            document.getElementById('embed-result').style.display = 'block';
+            document.getElementById('tenant-form').reset();
+            loadTenants();
+        });
+
+        async function loadTenants() {
+            const res = await fetch(`${API_URL}/admin/tenants`);
+            const tenants = await res.json();
+            const tbody = document.querySelector('#tenants-table tbody');
+            tbody.innerHTML = tenants.map(t => `
+                <tr>
+                    <td>${t.company_name}</td>
+                    <td>${t.domain}</td>
+                    <td>${t.voice_model || 'N/A'}</td>
+                    <td><span class="status ${t.status}">${t.status}</span></td>
+                    <td>${new Date(t.created_at || Date.now()).toLocaleDateString()}</td>
+                    <td>
+                        <button onclick="toggleStatus('${t.id}', '${t.status === 'active' ? 'suspended' : 'active'}')">
+                            ${t.status === 'active' ? 'Suspend' : 'Activate'}
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function toggleStatus(tenantId, newStatus) {
+            await fetch(`${API_URL}/admin/tenants/${tenantId}/status?status=${newStatus}`, {
+                method: 'PUT'
+            });
+            loadTenants();
+        }
+
+        function showAvatarForm() {
+            document.getElementById('avatar-form').style.display = 'block';
+        }
+
+        async function createAvatar() {
+            const name = document.getElementById('avatar_name').value;
+            const url = document.getElementById('avatar_url').value;
+            await fetch(`${API_URL}/admin/avatars?name=${name}&image_url=${url}`, {
+                method: 'POST'
+            });
+            loadAvatars();
+        }
+
+        async function loadAvatars() {
+            const res = await fetch(`${API_URL}/admin/avatars`);
+            const avatars = await res.json();
+            document.getElementById('avatars-list').innerHTML = avatars.map(a => `
+                <div style="display:inline-block; margin:10px;">
+                    <img src="${a.image_url}" style="width:80px; height:80px; border-radius:50%;">
+                    <p>${a.name}</p>
+                </div>
+            `).join('');
+        }
+
+        loadTenants();
+        loadAvatars();
+    </script>
+</body>
+</html>

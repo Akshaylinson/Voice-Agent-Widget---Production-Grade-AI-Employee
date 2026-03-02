@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent Widget</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        #voice-agent-widget { position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        #voice-agent-avatar { width: 70px; height: 70px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; transition: transform 0.3s ease; overflow: hidden; position: relative; }
+        #voice-agent-avatar:hover { transform: scale(1.1); }
+        #voice-agent-avatar.listening { animation: pulse 1.5s infinite; }
+        #voice-agent-avatar.speaking { animation: speak 0.8s infinite; }
+        #voice-agent-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        #voice-agent-avatar .default-icon { font-size: 35px; color: white; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 4px 20px rgba(102, 126, 234, 0.5); } 50% { box-shadow: 0 4px 40px rgba(102, 126, 234, 0.9); } }
+        @keyframes speak { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        .status-indicator { position: absolute; bottom: 5px; right: 5px; width: 15px; height: 15px; border-radius: 50%; background: #10b981; border: 2px solid white; }
+        .status-indicator.listening { background: #ef4444; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+    <div id="voice-agent-widget">
+        <div id="voice-agent-avatar">
+            <span class="default-icon">🤖</span>
+            <div class="status-indicator"></div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const API_BASE_URL = window.VOICE_AGENT_API_URL || 'http://localhost:8001/api';
+            let isActive = false, isListening = false, isSpeaking = false, sessionId = null;
+            const avatar = document.getElementById('voice-agent-avatar');
+            const statusIndicator = avatar.querySelector('.status-indicator');
+            
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            
+            let configuredVoiceModel = 'nova';
+
+            async function loadConfig() {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/config`);
+                    const config = await res.json();
+                    configuredVoiceModel = config.voice_model || 'nova';
+                    if (config.avatar_url) avatar.innerHTML = `<img src="${config.avatar_url}"><div class="status-indicator"></div>`;
+                    if (config.brand_colors?.primary) avatar.style.background = config.brand_colors.primary;
+                    if (config.introduction_script) speak(config.introduction_script, startListening);
+                    else startListening();
+                } catch (e) { console.error('Config failed:', e); startListening(); }
+            }
+
+            function speak(text, callback) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                const voices = speechSynthesis.getVoices();
+                
+                const maleVoices = ['alloy', 'echo', 'onyx'];
+                const isMaleVoice = maleVoices.includes(configuredVoiceModel);
+                
+                let selectedVoice;
+                if (isMaleVoice) {
+                    selectedVoice = voices.find(v => v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex') || (v.name.includes('Google') && v.name.includes('1')));
+                } else {
+                    selectedVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Zira') || (v.name.includes('Google') && v.name.includes('2')));
+                }
+                
+                if (selectedVoice) utterance.voice = selectedVoice;
+                utterance.pitch = isMaleVoice ? 0.9 : 1.1;
+                utterance.rate = 1.0;
+                utterance.onstart = () => { isSpeaking = true; avatar.classList.add('speaking'); };
+                utterance.onend = () => { isSpeaking = false; avatar.classList.remove('speaking'); if (callback) callback(); };
+                speechSynthesis.speak(utterance);
+            }
+
+            function startListening() {
+                if (isListening || !isActive) return;
+                isListening = true;
+                avatar.classList.add('listening');
+                statusIndicator.classList.add('listening');
+                recognition.start();
+            }
+
+            recognition.onresult = async (event) => {
+                const query = event.results[0][0].transcript;
+                isListening = false;
+                avatar.classList.remove('listening');
+                statusIndicator.classList.remove('listening');
+                await processQuery(query);
+            };
+
+            recognition.onerror = () => {
+                isListening = false;
+                avatar.classList.remove('listening');
+                statusIndicator.classList.remove('listening');
+                if (isActive) setTimeout(startListening, 1000);
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                avatar.classList.remove('listening');
+                statusIndicator.classList.remove('listening');
+            };
+
+            async function processQuery(query) {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/text-query`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, session_id: sessionId })
+                    });
+                    if (!res.ok) throw new Error('Query failed');
+                    const data = await res.json();
+                    sessionId = data.session_id;
+                    speak(data.response, () => { if (isActive) startListening(); });
+                } catch (e) { console.error('Query failed:', e); if (isActive) startListening(); }
+            }
+
+            avatar.addEventListener('click', () => {
+                if (isActive) {
+                    isActive = false;
+                    recognition.stop();
+                    speechSynthesis.cancel();
+                    avatar.classList.remove('listening', 'speaking');
+                    statusIndicator.classList.remove('listening');
+                } else {
+                    isActive = true;
+                    sessionId = null;
+                    loadConfig();
+                }
+            });
+
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = () => {};
+            }
+        })();
+    </script>
+</body>
+</html>
