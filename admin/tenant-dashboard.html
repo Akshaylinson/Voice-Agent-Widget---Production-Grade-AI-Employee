@@ -316,7 +316,7 @@
                 const opt = document.createElement('option');
                 opt.value = a.id;
                 opt.textContent = a.name;
-                opt.dataset.url = a.image_url;
+                opt.dataset.imageData = a.image_data;
                 if (tenantData.avatar_id === a.id) opt.selected = true;
                 select.appendChild(opt);
             });
@@ -327,8 +327,8 @@
             const select = document.getElementById('avatar_select');
             const preview = document.getElementById('avatar_preview');
             const selected = select.options[select.selectedIndex];
-            if (selected.dataset.url) {
-                preview.src = selected.dataset.url;
+            if (selected.dataset.imageData) {
+                preview.src = selected.dataset.imageData;
                 preview.classList.remove('hidden');
             } else {
                 preview.classList.add('hidden');

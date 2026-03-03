@@ -110,35 +110,51 @@ def list_tenants(db: Session = Depends(get_db)):
 @app.get("/admin/tenant/{tenant_id}")
 def get_tenant_details(tenant_id: str, db: Session = Depends(get_db)):
     from sqlalchemy import func
+    import uuid
     
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    try:
+        # Convert string to UUID if needed
+        tenant_uuid = uuid.UUID(tenant_id) if isinstance(tenant_id, str) else tenant_id
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_uuid).first()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant ID format")
+    
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     
     avatar = None
     if tenant.avatar_id:
-        avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
+        try:
+            avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
+        except Exception as e:
+            logger.error(f"Error loading avatar: {e}")
     
-    # Get analytics
-    total_conversations = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).count()
-    total_tokens = db.query(func.sum(Conversation.token_usage)).filter(Conversation.tenant_id == tenant.id).scalar() or 0
-    last_activity = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).order_by(
-        Conversation.created_at.desc()
-    ).first()
+    # Get analytics with error handling
+    try:
+        total_conversations = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).count()
+        total_tokens = db.query(func.sum(Conversation.token_usage)).filter(Conversation.tenant_id == tenant.id).scalar() or 0
+        last_activity = db.query(Conversation).filter(Conversation.tenant_id == tenant.id).order_by(
+            Conversation.created_at.desc()
+        ).first()
+    except Exception as e:
+        logger.error(f"Error loading analytics: {e}")
+        total_conversations = 0
+        total_tokens = 0
+        last_activity = None
     
     return {
         "id": str(tenant.id),
         "company_name": tenant.company_name,
         "domain": tenant.domain,
         "avatar_id": str(tenant.avatar_id) if tenant.avatar_id else None,
-        "avatar_url": avatar.image_url if avatar else None,
-        "introduction_script": tenant.introduction_script,
-        "voice_model": tenant.voice_model,
-        "voice_tone": tenant.voice_tone,
-        "temperature": tenant.temperature,
-        "max_tokens": tenant.max_tokens,
+        "avatar_url": avatar.image_data if avatar else None,
+        "introduction_script": tenant.introduction_script or "",
+        "voice_model": tenant.voice_model or "nova",
+        "voice_tone": tenant.voice_tone or "friendly",
+        "temperature": tenant.temperature or 0.7,
+        "max_tokens": tenant.max_tokens or 500,
         "status": tenant.status,
-        "brand_colors": tenant.brand_colors,
+        "brand_colors": tenant.brand_colors or {},
         "widget_signature": tenant.widget_signature,
         "created_at": tenant.created_at.isoformat(),
         "analytics": {
@@ -162,23 +178,39 @@ class TenantUpdate(BaseModel):
 
 @app.put("/admin/tenant/{tenant_id}")
 def update_tenant(tenant_id: str, data: TenantUpdate, db: Session = Depends(get_db)):
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    import uuid
+    
+    try:
+        tenant_uuid = uuid.UUID(tenant_id) if isinstance(tenant_id, str) else tenant_id
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_uuid).first()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant ID format")
+    
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     
-    if data.company_name: tenant.company_name = data.company_name
-    if data.domain: tenant.domain = data.domain
-    if data.avatar_id: tenant.avatar_id = data.avatar_id
-    if data.introduction_script is not None: tenant.introduction_script = data.introduction_script
-    if data.voice_model: tenant.voice_model = data.voice_model
-    if data.voice_tone: tenant.voice_tone = data.voice_tone
-    if data.temperature is not None: tenant.temperature = data.temperature
-    if data.max_tokens: tenant.max_tokens = data.max_tokens
-    if data.openai_api_key: tenant.openai_api_key_encrypted = encrypt_api_key(data.openai_api_key)
-    if data.brand_colors: tenant.brand_colors = data.brand_colors
-    
-    db.commit()
-    return {"status": "updated"}
+    try:
+        if data.company_name: tenant.company_name = data.company_name
+        if data.domain: tenant.domain = data.domain
+        if data.avatar_id: 
+            try:
+                tenant.avatar_id = uuid.UUID(data.avatar_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid avatar ID format")
+        if data.introduction_script is not None: tenant.introduction_script = data.introduction_script
+        if data.voice_model: tenant.voice_model = data.voice_model
+        if data.voice_tone: tenant.voice_tone = data.voice_tone
+        if data.temperature is not None: tenant.temperature = data.temperature
+        if data.max_tokens: tenant.max_tokens = data.max_tokens
+        if data.openai_api_key: tenant.openai_api_key_encrypted = encrypt_api_key(data.openai_api_key)
+        if data.brand_colors: tenant.brand_colors = data.brand_colors
+        
+        db.commit()
+        return {"status": "updated"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating tenant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/tenant/{tenant_id}/knowledge")
 def get_tenant_knowledge(tenant_id: str, db: Session = Depends(get_db)):
