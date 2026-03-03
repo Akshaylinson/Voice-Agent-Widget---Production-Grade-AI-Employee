@@ -48,10 +48,20 @@ async def get_tenant_context(request: Request, db: Session):
         logger.error(f"[AUTH] Invalid signature for tenant: {tenant_id}")
         raise HTTPException(status_code=401, detail="Invalid signature")
     
-    # Relaxed domain validation for localhost testing
-    if tenant.domain and origin and "localhost" not in origin and tenant.domain not in origin:
-        logger.error(f"[AUTH] Domain not authorized: {origin} vs {tenant.domain}")
-        raise HTTPException(status_code=403, detail="Domain not authorized")
+    # Domain validation: Allow localhost/IP for development OR production domain
+    if tenant.domain and origin:
+        is_local = any([
+            "localhost" in origin,
+            "127.0.0.1" in origin,
+            origin.startswith("file://"),
+            not origin
+        ])
+        
+        is_authorized_domain = tenant.domain in origin
+        
+        if not is_local and not is_authorized_domain:
+            logger.error(f"[AUTH] Domain not authorized: {origin} vs {tenant.domain}")
+            raise HTTPException(status_code=403, detail="Domain not authorized")
     
     logger.info(f"[AUTH] Success: {tenant.company_name}")
     tenant.decrypted_api_key = decrypt_api_key(tenant.openai_api_key_encrypted)

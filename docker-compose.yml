@@ -21,10 +21,12 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app  # Mount source code for live updates
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/voice_agent_multi_tenant
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - MASTER_ADMIN_SECRET=${MASTER_ADMIN_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-32_byte_base64_key_here_change_in_production}
+      - MASTER_ADMIN_SECRET=${MASTER_ADMIN_SECRET:-change_this_secret}
     depends_on:
       db:
         condition: service_healthy

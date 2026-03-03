@@ -1,443 +1,594 @@
-# 🌐 Production Deployment Guide
+# Production Deployment Checklist
 
-## Overview
+## 🚀 Pre-Production Changes Required
 
-This guide covers deploying the Voice Agent Widget to production cloud environments with SSL, domain configuration, and scalability.
+### 1. Environment Variables
 
-## Architecture for Production
-
-```
-Internet
-    │
-    ▼
-Load Balancer (SSL/HTTPS)
-    │
-    ├─► Voice Agent Container (Client 1) ──► PostgreSQL RDS
-    ├─► Voice Agent Container (Client 2) ──► PostgreSQL RDS
-    └─► Voice Agent Container (Client 3) ──► PostgreSQL RDS
-```
-
-## Prerequisites
-
-- Cloud account (AWS/GCP/Azure)
-- Domain name with DNS access
-- SSL certificate
-- Container registry access
-- OpenAI API key
-
-## Option 1: AWS Deployment
-
-### 1. Build and Push Docker Image
+**File: `backend/.env`**
 
 ```bash
-# Build image
-docker build -t voice-agent:latest ./backend
+# ❌ Development
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voice_agent
+OPENAI_API_KEY=sk-test-key
+JWT_SECRET=dev-secret-123
 
-# Tag for ECR
-docker tag voice-agent:latest <account-id>.dkr.ecr.<region>.amazonaws.com/voice-agent:latest
-
-# Login to ECR
-aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
-
-# Push
-docker push <account-id>.dkr.ecr.<region>.amazonaws.com/voice-agent:latest
+# ✅ Production
+DATABASE_URL=postgresql://user:password@prod-db-host:5432/voice_agent_prod
+OPENAI_API_KEY=sk-prod-xxxxxxxxxxxxx
+JWT_SECRET=<generate-strong-random-secret>
+ENCRYPTION_KEY=<generate-32-byte-base64-key>
 ```
 
-### 2. Create RDS PostgreSQL Database
-
+**Generate Secrets:**
 ```bash
-aws rds create-db-instance \
-    --db-instance-identifier voice-agent-client1-db \
-    --db-instance-class db.t3.micro \
-    --engine postgres \
-    --master-username postgres \
-    --master-user-password <secure-password> \
-    --allocated-storage 20
+# JWT Secret
+openssl rand -hex 32
+
+# Encryption Key (32 bytes base64)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-### 3. Deploy to ECS
-
-Create task definition (`task-definition.json`):
-
-```json
-{
-  "family": "voice-agent-client1",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "512",
-  "memory": "1024",
-  "containerDefinitions": [
-    {
-      "name": "voice-agent",
-      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/voice-agent:latest",
-      "portMappings": [
-        {
-          "containerPort": 8000,
-          "protocol": "tcp"
-        }
-      ],
-      "environment": [
-        {
-          "name": "CLIENT_ID",
-          "value": "client1"
-        },
-        {
-          "name": "DATABASE_URL",
-          "value": "postgresql://postgres:<password>@<rds-endpoint>:5432/voice_agent"
-        },
-        {
-          "name": "OPENAI_API_KEY",
-          "value": "<your-openai-key>"
-        },
-        {
-          "name": "JWT_SECRET",
-          "value": "<your-jwt-secret>"
-        }
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/voice-agent",
-          "awslogs-region": "<region>",
-          "awslogs-stream-prefix": "client1"
-        }
-      }
-    }
-  ]
-}
-```
-
-Deploy:
-```bash
-aws ecs register-task-definition --cli-input-json file://task-definition.json
-
-aws ecs create-service \
-    --cluster voice-agent-cluster \
-    --service-name voice-agent-client1 \
-    --task-definition voice-agent-client1 \
-    --desired-count 1 \
-    --launch-type FARGATE \
-    --network-configuration "awsvpcConfiguration={subnets=[<subnet-id>],securityGroups=[<sg-id>],assignPublicIp=ENABLED}"
-```
-
-### 4. Configure Application Load Balancer
-
-```bash
-# Create target group
-aws elbv2 create-target-group \
-    --name voice-agent-client1-tg \
-    --protocol HTTP \
-    --port 8000 \
-    --vpc-id <vpc-id> \
-    --target-type ip
-
-# Create load balancer
-aws elbv2 create-load-balancer \
-    --name voice-agent-lb \
-    --subnets <subnet-1> <subnet-2> \
-    --security-groups <sg-id>
-
-# Add HTTPS listener with SSL certificate
-aws elbv2 create-listener \
-    --load-balancer-arn <lb-arn> \
-    --protocol HTTPS \
-    --port 443 \
-    --certificates CertificateArn=<cert-arn> \
-    --default-actions Type=forward,TargetGroupArn=<tg-arn>
-```
-
-### 5. Configure DNS
-
-Point your domain to the load balancer:
-
-```
-voice-api.yourdomain.com → CNAME → <lb-dns-name>
-```
-
-## Option 2: Google Cloud Platform (GKE)
-
-### 1. Build and Push to GCR
-
-```bash
-# Build
-docker build -t gcr.io/<project-id>/voice-agent:latest ./backend
-
-# Push
-docker push gcr.io/<project-id>/voice-agent:latest
-```
-
-### 2. Create Cloud SQL PostgreSQL
-
-```bash
-gcloud sql instances create voice-agent-client1-db \
-    --database-version=POSTGRES_15 \
-    --tier=db-f1-micro \
-    --region=us-central1
-```
-
-### 3. Deploy to GKE
-
-Create deployment (`deployment.yaml`):
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: voice-agent-client1
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: voice-agent-client1
-  template:
-    metadata:
-      labels:
-        app: voice-agent-client1
-    spec:
-      containers:
-      - name: voice-agent
-        image: gcr.io/<project-id>/voice-agent:latest
-        ports:
-        - containerPort: 8000
-        env:
-        - name: CLIENT_ID
-          value: "client1"
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: voice-agent-secrets
-              key: database-url
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: voice-agent-secrets
-              key: openai-api-key
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: voice-agent-client1-service
-spec:
-  type: LoadBalancer
-  ports:
-  - port: 80
-    targetPort: 8000
-  selector:
-    app: voice-agent-client1
+
+### 2. Database Configuration
+
+**Current (Development):**
+- SQLite or local PostgreSQL
+- No backups
+- No replication
+
+**Production Requirements:**
+- ✅ Use managed PostgreSQL (AWS RDS, Google Cloud SQL, Azure Database)
+- ✅ Enable automated backups (daily minimum)
+- ✅ Set up read replicas for scaling
+- ✅ Configure connection pooling
+- ✅ Enable SSL/TLS for database connections
+
+**Update `backend/database.py`:**
+```python
+# Add SSL and connection pooling
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"sslmode": "require"},  # Force SSL
+    pool_size=20,
+    max_overflow=40,
+    pool_pre_ping=True
+)
 ```
 
-Deploy:
-```bash
-kubectl apply -f deployment.yaml
+---
+
+### 3. API URLs & Endpoints
+
+**Files to Update:**
+- `admin/index.html`
+- `CodelessAi.html`
+- `demo_acme.html`
+- All client HTML files
+
+**Change:**
+```javascript
+// ❌ Development
+const API_URL = 'http://localhost:8000';
+window.VOICE_AGENT_API_URL = "http://localhost:8000/api";
+
+// ✅ Production
+const API_URL = 'https://api.yourdomain.com';
+window.VOICE_AGENT_API_URL = "https://api.yourdomain.com/api";
 ```
 
-## Option 3: Azure (AKS)
+---
 
-### 1. Build and Push to ACR
+### 4. Widget Script URL
 
-```bash
-# Create ACR
-az acr create --resource-group voice-agent-rg --name voiceagentacr --sku Basic
-
-# Build and push
-az acr build --registry voiceagentacr --image voice-agent:latest ./backend
+**Current (Development):**
+```html
+<script src="https://codeless-tcr.github.io/vvai/widget.js"></script>
 ```
 
-### 2. Create Azure Database for PostgreSQL
+**Production Options:**
 
-```bash
-az postgres server create \
-    --resource-group voice-agent-rg \
-    --name voice-agent-client1-db \
-    --location eastus \
-    --admin-user postgres \
-    --admin-password <secure-password> \
-    --sku-name B_Gen5_1
+**Option A: Self-hosted (Recommended)**
+```html
+<script src="https://cdn.yourdomain.com/widget.js"></script>
 ```
 
-### 3. Deploy to AKS
+**Option B: Keep external CDN**
+- Ensure CDN is reliable and versioned
+- Consider hosting backup copy
 
-Similar to GKE deployment with Azure-specific configurations.
+---
 
-## Environment Variables for Production
+### 5. CORS Configuration
 
-```bash
-# Required
-OPENAI_API_KEY=sk-prod-key-here
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-CLIENT_ID=client1
-JWT_SECRET=secure-random-string-here
+**File: `backend/main.py`**
 
-# Optional
-PORT=8000
-LOG_LEVEL=info
-CORS_ORIGINS=https://yourdomain.com
+**Current (Development):**
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ❌ Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 ```
 
-## SSL/HTTPS Configuration
+**Production:**
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://yourdomain.com",
+        "https://www.yourdomain.com",
+        "https://admin.yourdomain.com",
+        # Add all authorized client domains
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "X-Tenant-ID", "X-Signature"],
+)
+```
 
-### Using Let's Encrypt with Nginx
+---
 
+### 6. Domain Validation
+
+**File: `backend/tenant_middleware.py`**
+
+**Current:** Already configured to accept both localhost AND production domain ✅
+
+**Verify tenant domains in database:**
+```sql
+-- Update all tenant domains to production URLs
+UPDATE tenants SET domain = 'acmecorp.com' WHERE company_name = 'Acme Corp';
+UPDATE tenants SET domain = 'codelessai.com' WHERE company_name = 'Codeless AI';
+```
+
+---
+
+### 7. SSL/HTTPS Configuration
+
+**Requirements:**
+- ✅ All production URLs must use HTTPS
+- ✅ Obtain SSL certificates (Let's Encrypt, AWS ACM, etc.)
+- ✅ Configure reverse proxy (Nginx, Caddy, CloudFlare)
+- ✅ Redirect HTTP to HTTPS
+- ✅ Enable HSTS headers
+
+**Nginx Example:**
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name voice-api.yourdomain.com;
-
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-    location /api/ {
-        proxy_pass http://voice-agent:8000/api/;
+    server_name api.yourdomain.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /voice-agent-widget.js {
-        proxy_pass http://voice-agent:8000/voice-agent-widget.js;
-        add_header Access-Control-Allow-Origin *;
     }
 }
 ```
 
-## Widget Embed Code for Production
+---
 
-```html
-<script>
-window.VOICE_AGENT_API_URL = 'https://voice-api.yourdomain.com/api';
-</script>
-<script src="https://voice-api.yourdomain.com/voice-agent-widget.js"></script>
+### 8. File Upload Configuration
+
+**File: `backend/main.py`**
+
+**Current:**
+```python
+UPLOADS_DIR = "uploads"  # Local directory
 ```
 
-## Scaling Considerations
+**Production (Use Cloud Storage):**
+```python
+# Option A: AWS S3
+import boto3
+s3_client = boto3.client('s3')
+BUCKET_NAME = 'your-avatars-bucket'
 
-### Horizontal Scaling
-- Run multiple container instances behind load balancer
-- Use container orchestration (ECS/GKE/AKS)
-- Configure auto-scaling based on CPU/memory
+# Option B: Google Cloud Storage
+from google.cloud import storage
+storage_client = storage.Client()
+bucket = storage_client.bucket('your-avatars-bucket')
 
-### Database Optimization
-- Use connection pooling
-- Enable read replicas for analytics queries
-- Regular vacuum and analyze operations
-
-### Caching
-- Add Redis for session management
-- Cache configuration and knowledge base
-- Implement CDN for widget delivery
-
-### Monitoring
-- CloudWatch/Stackdriver/Azure Monitor for logs
-- Set up alerts for errors and latency
-- Track conversation metrics
-
-## Security Best Practices
-
-1. **API Keys**: Store in secrets manager (AWS Secrets Manager/GCP Secret Manager)
-2. **Database**: Use private subnets, enable SSL connections
-3. **Network**: Configure security groups/firewall rules
-4. **CORS**: Restrict to specific domains in production
-5. **Rate Limiting**: Implement per-client rate limits
-6. **Authentication**: Add API key authentication for admin endpoints
-
-## Cost Optimization
-
-### AWS Estimated Monthly Costs (per client)
-- ECS Fargate (0.5 vCPU, 1GB): ~$15
-- RDS PostgreSQL (db.t3.micro): ~$15
-- ALB: ~$20
-- Data transfer: ~$10
-- **Total: ~$60/month per client**
-
-### Optimization Tips
-- Use reserved instances for predictable workloads
-- Enable auto-scaling to scale down during low traffic
-- Use spot instances for non-critical environments
-- Implement request caching to reduce API calls
-
-## Backup and Disaster Recovery
-
-### Database Backups
-```bash
-# AWS RDS automated backups
-aws rds modify-db-instance \
-    --db-instance-identifier voice-agent-client1-db \
-    --backup-retention-period 7 \
-    --preferred-backup-window "03:00-04:00"
+# Option C: Azure Blob Storage
+from azure.storage.blob import BlobServiceClient
+blob_service = BlobServiceClient.from_connection_string(conn_str)
 ```
 
-### Configuration Backups
-- Export client configurations regularly
-- Store in version control or S3
-- Implement restore procedures
-
-## Multi-Region Deployment
-
-For high availability:
-1. Deploy containers in multiple regions
-2. Use Route53/Cloud DNS for geo-routing
-3. Replicate databases across regions
-4. Implement failover mechanisms
-
-## Monitoring and Alerts
-
-### Key Metrics to Monitor
-- API response time
-- Error rate
-- Voice processing latency
-- Database connection pool
-- Container CPU/memory usage
-- Conversation success rate
-
-### Sample CloudWatch Alarms
-```bash
-aws cloudwatch put-metric-alarm \
-    --alarm-name voice-agent-high-error-rate \
-    --alarm-description "Alert when error rate exceeds 5%" \
-    --metric-name ErrorRate \
-    --namespace VoiceAgent \
-    --statistic Average \
-    --period 300 \
-    --threshold 5 \
-    --comparison-operator GreaterThanThreshold
+**Update avatar URLs to use CDN:**
+```python
+# Instead of: http://localhost:8000/uploads/image.jpg
+# Use: https://cdn.yourdomain.com/avatars/image.jpg
 ```
-
-## Deployment Checklist
-
-- [ ] Domain and SSL certificate configured
-- [ ] Database created and secured
-- [ ] Environment variables set in secrets manager
-- [ ] Container image built and pushed
-- [ ] Load balancer configured with health checks
-- [ ] DNS records updated
-- [ ] CORS configured for client domains
-- [ ] Monitoring and alerts set up
-- [ ] Backup strategy implemented
-- [ ] Security groups/firewall rules configured
-- [ ] Widget tested on client website
-- [ ] Admin dashboard accessible
-- [ ] Documentation provided to client
-
-## Support and Maintenance
-
-### Regular Tasks
-- Monitor logs for errors
-- Review conversation analytics
-- Update knowledge base as needed
-- Apply security patches
-- Scale resources based on usage
-- Optimize database queries
-
-### Client Onboarding
-1. Deploy isolated container and database
-2. Provide admin dashboard access
-3. Configure initial knowledge base
-4. Customize branding and voice
-5. Test widget integration
-6. Provide embed code
-7. Monitor first week of usage
 
 ---
 
-**Production deployment complete! Your voice agent is now live and scalable.**
+### 9. Logging & Monitoring
+
+**File: `backend/main.py`**
+
+**Current:**
+```python
+logging.basicConfig(level=logging.INFO)
+```
+
+**Production:**
+```python
+import logging
+from logging.handlers import RotatingFileHandler
+
+# File logging with rotation
+handler = RotatingFileHandler(
+    'logs/app.log',
+    maxBytes=10485760,  # 10MB
+    backupCount=10
+)
+handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+))
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+# Add error tracking (Sentry, Rollbar, etc.)
+import sentry_sdk
+sentry_sdk.init(dsn="your-sentry-dsn")
+```
+
+**Set up monitoring:**
+- ✅ Application Performance Monitoring (APM)
+- ✅ Error tracking (Sentry, Rollbar)
+- ✅ Uptime monitoring (Pingdom, UptimeRobot)
+- ✅ Log aggregation (CloudWatch, Datadog, ELK)
+
+---
+
+### 10. Rate Limiting
+
+**Add to `backend/main.py`:**
+
+```python
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.post("/api/voice-query")
+@limiter.limit("10/minute")  # 10 requests per minute per IP
+async def voice_query(request: Request, db: Session = Depends(get_db)):
+    # ... existing code
+```
+
+---
+
+### 11. Security Headers
+
+**Add to `backend/main.py`:**
+
+```python
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+
+# Only allow specific hosts
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["api.yourdomain.com", "*.yourdomain.com"]
+)
+
+# Add security headers
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+```
+
+---
+
+### 12. Docker Configuration
+
+**File: `backend/Dockerfile`**
+
+**Production optimizations:**
+```dockerfile
+FROM python:3.11-slim
+
+# Security: Run as non-root user
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Production server
+CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
+```
+
+**Update `requirements.txt`:**
+```txt
+gunicorn==21.2.0
+uvicorn[standard]==0.24.0
+```
+
+---
+
+### 13. Database Migrations
+
+**Before deploying:**
+```bash
+# Backup production database
+pg_dump -h prod-host -U user -d voice_agent_prod > backup_$(date +%Y%m%d).sql
+
+# Test migrations on staging
+alembic upgrade head
+
+# Apply to production
+alembic upgrade head
+```
+
+---
+
+### 14. Admin Dashboard Security
+
+**File: `admin/index.html`**
+
+**Add authentication:**
+```javascript
+// Add login system
+const ADMIN_PASSWORD = prompt("Enter admin password:");
+
+fetch(`${API_URL}/admin/login`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: ADMIN_PASSWORD})
+})
+.then(res => res.json())
+.then(data => {
+    if (data.token) {
+        localStorage.setItem('admin_token', data.token);
+    }
+});
+```
+
+**Backend: Add admin authentication endpoint**
+
+---
+
+### 15. Backup Strategy
+
+**Automated backups:**
+```bash
+# Daily database backup
+0 2 * * * pg_dump -h prod-host -U user voice_agent_prod | gzip > /backups/db_$(date +\%Y\%m\%d).sql.gz
+
+# Weekly full backup
+0 3 * * 0 tar -czf /backups/full_$(date +\%Y\%m\%d).tar.gz /app /backups/db_*.sql.gz
+
+# Retention: Keep 30 days
+find /backups -name "*.gz" -mtime +30 -delete
+```
+
+---
+
+### 16. Performance Optimization
+
+**Enable caching:**
+```python
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from redis import asyncio as aioredis
+
+@app.on_event("startup")
+async def startup():
+    redis = aioredis.from_url("redis://localhost")
+    FastAPICache.init(RedisBackend(redis), prefix="voice-agent-cache")
+```
+
+**Database indexing:**
+```sql
+CREATE INDEX idx_tenant_domain ON tenants(domain);
+CREATE INDEX idx_conversation_tenant ON conversations(tenant_id);
+CREATE INDEX idx_knowledge_tenant ON knowledge_base(tenant_id);
+```
+
+---
+
+### 17. CDN Configuration
+
+**Static assets:**
+- ✅ Serve widget.js from CDN
+- ✅ Serve avatar images from CDN
+- ✅ Enable gzip/brotli compression
+- ✅ Set cache headers (1 year for immutable assets)
+
+**CloudFlare/CloudFront settings:**
+- Cache everything
+- Browser cache TTL: 1 year
+- Edge cache TTL: 1 month
+
+---
+
+### 18. Testing Checklist
+
+**Before going live:**
+- [ ] Test all API endpoints with production URLs
+- [ ] Verify SSL certificates are valid
+- [ ] Test widget on actual client domains
+- [ ] Load testing (simulate 100+ concurrent users)
+- [ ] Security scan (OWASP ZAP, Burp Suite)
+- [ ] Verify database backups work
+- [ ] Test disaster recovery procedure
+- [ ] Check all error handling
+- [ ] Verify logging is working
+- [ ] Test rate limiting
+- [ ] Verify CORS settings
+- [ ] Test with real OpenAI API key
+- [ ] Check billing/usage tracking
+
+---
+
+### 19. Deployment Steps
+
+**Step-by-step:**
+
+1. **Backup everything**
+   ```bash
+   pg_dump production_db > backup.sql
+   tar -czf code_backup.tar.gz /app
+   ```
+
+2. **Update environment variables**
+   - Set production DATABASE_URL
+   - Set production API keys
+   - Set strong secrets
+
+3. **Deploy backend**
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+4. **Run migrations**
+   ```bash
+   docker exec backend alembic upgrade head
+   ```
+
+5. **Update client HTML files**
+   - Change all localhost URLs to production
+   - Update widget script URLs
+
+6. **Deploy admin dashboard**
+   - Upload to hosting (Netlify, Vercel, S3)
+   - Configure custom domain
+
+7. **Update DNS records**
+   - Point api.yourdomain.com to backend
+   - Point admin.yourdomain.com to admin dashboard
+
+8. **Test everything**
+   - Create test tenant
+   - Test widget on client site
+   - Verify voice interactions work
+
+9. **Monitor for 24 hours**
+   - Check error logs
+   - Monitor API response times
+   - Watch database performance
+
+---
+
+### 20. Post-Deployment
+
+**Ongoing maintenance:**
+- [ ] Monitor error rates daily
+- [ ] Review logs weekly
+- [ ] Update dependencies monthly
+- [ ] Security patches immediately
+- [ ] Database optimization quarterly
+- [ ] Backup verification monthly
+- [ ] Load testing before major releases
+
+---
+
+## 🔒 Security Checklist
+
+- [ ] All connections use HTTPS/SSL
+- [ ] Database connections encrypted
+- [ ] API keys stored encrypted
+- [ ] Rate limiting enabled
+- [ ] CORS properly configured
+- [ ] Security headers set
+- [ ] Input validation on all endpoints
+- [ ] SQL injection prevention (using ORM)
+- [ ] XSS prevention
+- [ ] CSRF protection
+- [ ] Admin dashboard password protected
+- [ ] Regular security audits
+
+---
+
+## 📊 Monitoring Checklist
+
+- [ ] Application logs centralized
+- [ ] Error tracking configured
+- [ ] Uptime monitoring active
+- [ ] Performance monitoring enabled
+- [ ] Database monitoring setup
+- [ ] Alerts configured for:
+  - API errors > 1%
+  - Response time > 2s
+  - Database CPU > 80%
+  - Disk space < 20%
+  - Failed backups
+
+---
+
+## 💰 Cost Optimization
+
+- [ ] Use reserved instances (AWS/GCP)
+- [ ] Enable auto-scaling
+- [ ] Optimize database queries
+- [ ] Implement caching
+- [ ] Compress responses
+- [ ] Use CDN for static assets
+- [ ] Monitor OpenAI API usage per tenant
+- [ ] Set usage limits per tenant
+
+---
+
+## 📝 Documentation
+
+**Update before launch:**
+- [ ] API documentation
+- [ ] Client integration guide
+- [ ] Admin user manual
+- [ ] Troubleshooting guide
+- [ ] Disaster recovery plan
+- [ ] Runbook for common issues
+
+---
+
+## Quick Reference
+
+**Development → Production Changes:**
+
+| Component | Development | Production |
+|-----------|-------------|------------|
+| API URL | http://localhost:8000 | https://api.yourdomain.com |
+| Database | Local PostgreSQL | Managed PostgreSQL (RDS) |
+| Storage | Local filesystem | S3/Cloud Storage |
+| Logging | Console | File + Centralized |
+| CORS | Allow all (*) | Specific domains only |
+| SSL | Not required | Required (HTTPS) |
+| Secrets | .env file | Environment variables |
+| Monitoring | None | Full APM + alerts |
+| Backups | Manual | Automated daily |
+| Rate Limiting | Disabled | Enabled |
+
+---
+
+**Need Help?** Review each section carefully before deploying to production.

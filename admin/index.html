@@ -78,7 +78,8 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">Domain</label>
-                                <input type="text" id="domain" placeholder="example.com" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                                <input type="text" id="domain" placeholder="localhost (for testing) or example.com" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                                <p class="text-xs text-slate-500 mt-1">Use 'localhost' for local testing, or your actual domain for production</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">OpenAI API Key</label>
@@ -338,44 +339,29 @@
             const fileInput = document.getElementById('avatar_file');
             const file = fileInput.files[0];
             
-            if (!name) {
-                showToast('Please enter avatar name', 'error');
-                return;
-            }
-            
-            if (!file) {
-                showToast('Please select an image file', 'error');
+            if (!name || !file) {
+                showToast('Please enter name and select image', 'error');
                 return;
             }
             
             try {
-                // Upload file first
                 const formData = new FormData();
-                formData.append('file', file);
+                formData.append('name', name);
+                formData.append('image_file', file);
                 
-                showToast('Uploading image...', 'success');
+                showToast('Creating avatar...', 'success');
                 
-                const uploadRes = await fetch(`${API_URL}/admin/upload-avatar`, {
+                const res = await fetch(`${API_URL}/admin/avatars`, {
                     method: 'POST',
                     body: formData
                 });
                 
-                if (!uploadRes.ok) {
-                    throw new Error('Upload failed');
-                }
-                
-                const uploadData = await uploadRes.json();
-                const imageUrl = uploadData.url;
-                
-                // Create avatar with uploaded URL
-                await fetch(`${API_URL}/admin/avatars?name=${encodeURIComponent(name)}&image_url=${encodeURIComponent(imageUrl)}`, {
-                    method: 'POST'
-                });
+                if (!res.ok) throw new Error('Failed to create avatar');
                 
                 document.getElementById('avatar_name').value = '';
                 document.getElementById('avatar_file').value = '';
                 document.getElementById('create_avatar_preview').innerHTML = '';
-                document.getElementById('avatar-form').style.display = 'none';
+                document.getElementById('avatar-form').classList.add('hidden');
                 await loadAvatars();
                 showToast('Avatar created successfully', 'success');
             } catch (e) {
@@ -392,17 +378,8 @@
             
             editingAvatarId = avatarId;
             document.getElementById('edit_avatar_name').value = avatar.name;
-            document.getElementById('edit_avatar_url').value = avatar.image_url;
             document.getElementById('edit_avatar_file').value = '';
-            
-            const preview = document.getElementById('edit_avatar_preview');
-            preview.src = avatar.image_url;
-            preview.onerror = function() {
-                this.classList.add('border-red-500');
-            };
-            preview.onload = function() {
-                this.classList.remove('border-red-500');
-            };
+            document.getElementById('edit_avatar_preview').src = avatar.image_data;
             
             document.getElementById('edit-avatar-modal').classList.remove('hidden');
         }
@@ -412,48 +389,35 @@
             const file = e.target.files[0];
             if (!file) return;
             
-            try {
-                // Upload file
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                showToast('Uploading image...', 'success');
-                
-                const uploadRes = await fetch(`${API_URL}/admin/upload-avatar`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!uploadRes.ok) throw new Error('Upload failed');
-                
-                const uploadData = await uploadRes.json();
-                
-                // Update preview and hidden URL field
-                document.getElementById('edit_avatar_url').value = uploadData.url;
-                document.getElementById('edit_avatar_preview').src = uploadData.url;
-                
-                showToast('Image uploaded', 'success');
-            } catch (e) {
-                console.error('Upload error:', e);
-                showToast('Upload failed', 'error');
-            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('edit_avatar_preview').src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         });
 
         async function saveAvatarEdit() {
             const name = document.getElementById('edit_avatar_name').value;
-            const url = document.getElementById('edit_avatar_url').value;
+            const fileInput = document.getElementById('edit_avatar_file');
+            const file = fileInput.files[0];
             
-            if (!name || !url) {
-                showToast('Please fill all fields', 'error');
+            if (!name) {
+                showToast('Please enter avatar name', 'error');
                 return;
             }
             
             try {
+                const formData = new FormData();
+                formData.append('name', name);
+                if (file) {
+                    formData.append('image_file', file);
+                }
+                
                 await fetch(`${API_URL}/admin/avatar/${editingAvatarId}`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, image_url: url })
+                    body: formData
                 });
+                
                 closeEditModal();
                 await loadAvatars();
                 showToast('Avatar updated successfully', 'success');
@@ -524,7 +488,7 @@
             
             document.getElementById('avatars-list').innerHTML = avatarsCache.map(a => `
                 <div class="bg-slate-900 rounded-xl shadow-lg border border-slate-800 p-6 hover:shadow-xl hover:-translate-y-1 transition duration-200">
-                    <img src="${a.image_url}" alt="${a.name}" class="w-24 h-24 rounded-full object-cover mx-auto border-3 border-slate-700" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22%3E%3Crect fill=%22%231e293b%22 width=%2280%22 height=%2280%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%2394a3b8%22 font-size=%2212%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                    <img src="${a.image_data}" alt="${a.name}" class="w-24 h-24 rounded-full object-cover mx-auto border-3 border-slate-700">
                     <p class="text-center text-lg font-semibold mt-4">${a.name}</p>
                     <div class="flex gap-2 justify-center mt-4">
                         <button onclick="editAvatar('${a.id}')" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 transition duration-200">Edit</button>
@@ -546,7 +510,7 @@
             if (avatarId) {
                 const avatar = avatarsCache.find(a => a.id === avatarId);
                 if (avatar) {
-                    preview.innerHTML = `<img src="${avatar.image_url}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">`;
+                    preview.innerHTML = `<img src="${avatar.image_data}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">`;
                 }
             } else {
                 preview.innerHTML = '';

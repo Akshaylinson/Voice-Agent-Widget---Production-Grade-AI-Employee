@@ -252,38 +252,20 @@ def update_tenant_avatar(tenant_id: str, avatar_id: str, db: Session = Depends(g
     return {"status": "updated"}
 
 # Avatar Management
-@app.post("/admin/upload-avatar")
-async def upload_avatar(request: Request, file: UploadFile = File(...)):
-    """Upload avatar image and return backend URL"""
-    try:
-        # Validate file type
-        allowed_extensions = {"jpg", "jpeg", "png", "webp", "gif"}
-        file_ext = file.filename.split(".")[-1].lower()
-        
-        if file_ext not in allowed_extensions:
-            raise HTTPException(status_code=400, detail="Invalid file type. Allowed: jpg, jpeg, png, webp, gif")
-        
-        # Generate unique filename
-        unique_name = f"{uuid.uuid4()}.{file_ext}"
-        file_path = os.path.join(UPLOADS_DIR, unique_name)
-        
-        # Save file
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        # Return backend URL
-        base_url = str(request.base_url).rstrip("/")
-        return {
-            "url": f"{base_url}/uploads/{unique_name}",
-            "filename": unique_name
-        }
-    except Exception as e:
-        logger.error(f"Upload failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/admin/avatars")
-def create_avatar(name: str, image_url: str, default_voice: str = "nova", db: Session = Depends(get_db)):
-    avatar = Avatar(name=name, image_url=image_url, default_voice=default_voice)
+async def create_avatar(name: str, image_file: UploadFile = File(...), default_voice: str = "nova", db: Session = Depends(get_db)):
+    """Create avatar with base64 image stored in database"""
+    import base64
+    
+    # Read and encode image
+    image_bytes = await image_file.read()
+    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+    
+    # Detect mime type
+    content_type = image_file.content_type or 'image/png'
+    image_data = f"data:{content_type};base64,{image_base64}"
+    
+    avatar = Avatar(name=name, image_data=image_data, default_voice=default_voice)
     db.add(avatar)
     db.commit()
     db.refresh(avatar)
@@ -292,22 +274,29 @@ def create_avatar(name: str, image_url: str, default_voice: str = "nova", db: Se
 @app.get("/admin/avatars")
 def list_avatars(db: Session = Depends(get_db)):
     avatars = db.query(Avatar).all()
-    return [{"id": str(a.id), "name": a.name, "image_url": a.image_url} for a in avatars]
+    return [{"id": str(a.id), "name": a.name, "image_data": a.image_data} for a in avatars]
 
 class AvatarUpdate(BaseModel):
     name: Optional[str] = None
-    image_url: Optional[str] = None
+    image_data: Optional[str] = None
     default_voice: Optional[str] = None
 
 @app.put("/admin/avatar/{avatar_id}")
-def update_avatar(avatar_id: str, data: AvatarUpdate, db: Session = Depends(get_db)):
+async def update_avatar(avatar_id: str, name: Optional[str] = None, image_file: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+    import base64
+    
     avatar = db.query(Avatar).filter(Avatar.id == avatar_id).first()
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
-    if data.name: avatar.name = data.name
-    if data.image_url: avatar.image_url = data.image_url
-    if data.default_voice: avatar.default_voice = data.default_voice
+    if name:
+        avatar.name = name
+    
+    if image_file:
+        image_bytes = await image_file.read()
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        content_type = image_file.content_type or 'image/png'
+        avatar.image_data = f"data:{content_type};base64,{image_base64}"
     
     db.commit()
     return {"status": "updated", "id": str(avatar.id)}
@@ -336,13 +325,15 @@ def delete_avatar(avatar_id: str, db: Session = Depends(get_db)):
 async def get_config(request: Request, db: Session = Depends(get_db)):
     tenant = await get_tenant_context(request, db)
     
-    avatar = None
+    avatar_data = None
     if tenant.avatar_id:
         avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
+        if avatar:
+            avatar_data = avatar.image_data
     
     return {
         "company_name": tenant.company_name,
-        "avatar_url": avatar.image_url if avatar else None,
+        "avatar_url": avatar_data,  # Now returns base64 data URL
         "introduction_script": tenant.introduction_script,
         "voice_model": tenant.voice_model,
         "brand_colors": tenant.brand_colors

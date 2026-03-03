@@ -30,7 +30,7 @@ class Avatar(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
-    image_url = Column(String(500), nullable=False)
+    image_data = Column(Text, nullable=False)  # Base64 encoded image
     default_voice = Column(String(50), default="nova")
     personality_prompt = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
