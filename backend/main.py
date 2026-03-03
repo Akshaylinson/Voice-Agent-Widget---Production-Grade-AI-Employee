@@ -398,80 +398,89 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
 
 @app.get("/api/introduction")
 async def get_introduction(request: Request, db: Session = Depends(get_db)):
+    """Generate introduction audio using OpenRouter TTS"""
     logger.info(f"[INTRODUCTION] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
-    logger.info(f"[INTRODUCTION] Tenant resolved: {tenant.company_name}")
+    logger.info(f"[INTRODUCTION] Tenant: {tenant.company_name}")
     
-    # Generate introduction audio
-    if tenant.introduction_script:
-        try:
-            audio_bytes = await text_to_speech(
-                tenant.introduction_script,
-                tenant.voice_model or "nova",
-                tenant.decrypted_api_key
-            )
-            from fastapi.responses import Response
-            return Response(content=audio_bytes, media_type="audio/mpeg")
-        except Exception as e:
-            logger.error(f"[INTRODUCTION] TTS failed: {e}")
+    if not tenant.introduction_script:
+        from fastapi.responses import Response
+        return Response(content=b"", media_type="audio/mpeg")
     
-    # Return empty if no script or TTS fails
-    from fastapi.responses import Response
-    return Response(content=b"", media_type="audio/mpeg")
+    try:
+        # Get API key (tenant-specific or master)
+        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
+        
+        # Generate audio using OpenRouter
+        audio_bytes = await text_to_speech(
+            tenant.introduction_script,
+            tenant.voice_model or "alloy",
+            api_key
+        )
+        
+        from fastapi.responses import StreamingResponse
+        import io
+        return StreamingResponse(
+            io.BytesIO(audio_bytes),
+            media_type="audio/mpeg"
+        )
+    except Exception as e:
+        logger.error(f"[INTRODUCTION] TTS failed: {e}")
+        from fastapi.responses import Response
+        return Response(content=b"", media_type="audio/mpeg")
 
 @app.post("/api/voice-query")
 async def voice_query(request: Request, db: Session = Depends(get_db)):
+    """Process voice query: Browser STT → OpenRouter LLM → OpenRouter TTS"""
     logger.info(f"[VOICE-QUERY] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
-    logger.info(f"[VOICE-QUERY] Tenant resolved: {tenant.company_name}")
+    logger.info(f"[VOICE-QUERY] Tenant: {tenant.company_name}")
     
-    # Parse form data
+    # Parse form data (browser sends transcribed text)
     form = await request.form()
-    audio_file = form.get("audio")
+    transcript = form.get("transcript")  # Browser already transcribed via Web Speech API
     session_id = form.get("session_id") or str(uuid.uuid4())
     
-    if not audio_file:
-        raise HTTPException(status_code=400, detail="No audio file provided")
+    if not transcript:
+        raise HTTPException(status_code=400, detail="No transcript provided")
     
     try:
-        # Read audio bytes
-        audio_bytes = await audio_file.read()
-        logger.info(f"[VOICE-QUERY] Audio size: {len(audio_bytes)} bytes")
+        logger.info(f"[VOICE-QUERY] Transcript: {transcript}")
         
-        # Step 1: Transcribe audio (Whisper)
-        transcript = await transcribe_audio(audio_bytes, tenant.decrypted_api_key)
+        # Get API key (tenant-specific or master)
+        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
         
-        # Step 2: Get knowledge base
+        # Step 1: Get knowledge base
         knowledge = db.query(KnowledgeBase).filter(
             KnowledgeBase.tenant_id == tenant.id,
             KnowledgeBase.is_active == True
         ).all()
         knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
         
-        # Step 3: Generate response (GPT-4)
+        # Step 2: Generate response using OpenRouter GPT-4o-mini
         response_text = await generate_response(
             transcript,
             knowledge_context,
             tenant.company_name,
-            tenant.decrypted_api_key
+            api_key
         )
         
-        # Step 4: Convert to speech (TTS)
+        # Step 3: Convert to speech using OpenRouter GPT-4o Audio Preview
         response_audio = await text_to_speech(
             response_text,
-            tenant.voice_model or "nova",
-            tenant.decrypted_api_key
+            tenant.voice_model or "alloy",
+            api_key
         )
         
-        # Step 5: Save conversation
+        # Step 4: Save conversation
         conversation = Conversation(
             tenant_id=tenant.id,
             session_id=session_id,
             transcript=transcript,
             response=response_text,
-            token_usage=0,  # TODO: track actual tokens
+            token_usage=0,
             duration=0.0
         )
         db.add(conversation)
@@ -479,9 +488,11 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         
         logger.info(f"[VOICE-QUERY] Success: {response_text[:100]}...")
         
-        from fastapi.responses import Response
-        return Response(
-            content=response_audio,
+        # Return audio as streaming response
+        from fastapi.responses import StreamingResponse
+        import io
+        return StreamingResponse(
+            io.BytesIO(response_audio),
             media_type="audio/mpeg",
             headers={"X-Session-ID": session_id}
         )
