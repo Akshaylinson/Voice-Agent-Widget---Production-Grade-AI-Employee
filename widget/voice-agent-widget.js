@@ -131,6 +131,33 @@
         } catch (e) { console.error('[WIDGET] Config load failed:', e); }
     }
     
+    // Force load voices and wait for them to be available
+    function loadVoicesAndWait() {
+        return new Promise((resolve) => {
+            let voices = speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                resolve(voices);
+                return;
+            }
+            
+            const voicesChangedHandler = () => {
+                voices = speechSynthesis.getVoices();
+                if (voices.length > 0) {
+                    speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
+                    resolve(voices);
+                }
+            };
+            
+            speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
+            
+            // Fallback timeout
+            setTimeout(() => {
+                speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
+                resolve(speechSynthesis.getVoices());
+            }, 3000);
+        });
+    }
+    
     function playIntroduction() {
         if (!config?.introduction_script) {
             console.log('[WIDGET] No introduction script, starting listening');
@@ -139,45 +166,81 @@
         }
         
         console.log('[WIDGET] Playing introduction with browser TTS');
-        const utterance = new SpeechSynthesisUtterance(config.introduction_script);
         
-        // Set voice based on config
-        const voices = speechSynthesis.getVoices();
-        if (voices.length > 0) {
-            const femaleVoices = voices.filter(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira') || v.name.toLowerCase().includes('hazel'));
-            const maleVoices = voices.filter(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('mark'));
+        loadVoicesAndWait().then(voices => {
+            const utterance = new SpeechSynthesisUtterance(config.introduction_script);
             
-            if (config.voice_model === 'nova' || config.voice_model === 'shimmer') {
-                utterance.voice = femaleVoices[0] || voices[0];
-            } else {
-                utterance.voice = maleVoices[0] || voices[1] || voices[0];
+            // Set voice based on config with better voice selection
+            if (voices.length > 0 && config) {
+                console.log('[WIDGET] Available voices:', voices.map(v => `${v.name} (${v.lang}) [${v.gender || 'unknown'}]`));
+                console.log('[WIDGET] Voice model from config:', config.voice_model);
+                console.log('[WIDGET] Voice gender from config:', config.voice_gender);
+                
+                let selectedVoice = null;
+                
+                // Map voice models to gender preference
+                const femaleModels = ['nova', 'shimmer', 'alloy'];
+                const maleModels = ['onyx', 'fable', 'echo'];
+                
+                const preferFemale = femaleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'female';
+                const preferMale = maleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'male';
+                
+                if (preferFemale) {
+                    // Try to find female voices
+                    selectedVoice = voices.find(v => 
+                        v.name.toLowerCase().includes('female') ||
+                        v.name.toLowerCase().includes('zira') ||
+                        v.name.toLowerCase().includes('hazel') ||
+                        v.name.toLowerCase().includes('susan') ||
+                        v.name.toLowerCase().includes('samantha') ||
+                        v.name.toLowerCase().includes('karen') ||
+                        v.name.toLowerCase().includes('moira') ||
+                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('female')) ||
+                        v.gender === 'female'
+                    );
+                } else if (preferMale) {
+                    // Try to find male voices
+                    selectedVoice = voices.find(v => 
+                        v.name.toLowerCase().includes('male') ||
+                        v.name.toLowerCase().includes('david') ||
+                        v.name.toLowerCase().includes('mark') ||
+                        v.name.toLowerCase().includes('alex') ||
+                        v.name.toLowerCase().includes('daniel') ||
+                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('male')) ||
+                        v.gender === 'male'
+                    );
+                }
+                
+                // Fallback to first available voice
+                utterance.voice = selectedVoice || voices[0];
+                console.log('[WIDGET] Selected voice:', utterance.voice?.name, utterance.voice?.gender);
             }
-        }
-        
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        
-        utterance.onstart = () => {
-            console.log('[WIDGET] Introduction TTS started');
-            isSpeaking = true;
-            avatar.classList.add('speaking');
-        };
-        
-        utterance.onend = () => {
-            console.log('[WIDGET] Introduction TTS ended');
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            startListening();
-        };
-        
-        utterance.onerror = (e) => {
-            console.error('[WIDGET] Introduction TTS error:', e);
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            startListening();
-        };
-        
-        speechSynthesis.speak(utterance);
+            
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
+            
+            utterance.onstart = () => {
+                console.log('[WIDGET] Introduction TTS started');
+                isSpeaking = true;
+                avatar.classList.add('speaking');
+            };
+            
+            utterance.onend = () => {
+                console.log('[WIDGET] Introduction TTS ended');
+                isSpeaking = false;
+                avatar.classList.remove('speaking');
+                startListening();
+            };
+            
+            utterance.onerror = (e) => {
+                console.error('[WIDGET] Introduction TTS error:', e);
+                isSpeaking = false;
+                avatar.classList.remove('speaking');
+                startListening();
+            };
+            
+            speechSynthesis.speak(utterance);
+        });
     }
     
     function startListening() {
@@ -253,49 +316,84 @@
     function speakResponse(text) {
         console.log('[WIDGET] Speaking response with browser TTS:', text.substring(0, 100) + '...');
         
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Set voice based on config
-        const voices = speechSynthesis.getVoices();
-        if (voices.length > 0 && config) {
-            const femaleVoices = voices.filter(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira') || v.name.toLowerCase().includes('hazel'));
-            const maleVoices = voices.filter(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('mark'));
+        loadVoicesAndWait().then(voices => {
+            const utterance = new SpeechSynthesisUtterance(text);
             
-            if (config.voice_model === 'nova' || config.voice_model === 'shimmer') {
-                utterance.voice = femaleVoices[0] || voices[0];
-            } else {
-                utterance.voice = maleVoices[0] || voices[1] || voices[0];
+            // Set voice based on config with better voice selection
+            if (voices.length > 0 && config) {
+                console.log('[WIDGET] Available voices for response:', voices.map(v => `${v.name} (${v.lang}) [${v.gender || 'unknown'}]`));
+                console.log('[WIDGET] Voice model from config:', config.voice_model);
+                console.log('[WIDGET] Voice gender from config:', config.voice_gender);
+                
+                let selectedVoice = null;
+                
+                // Map voice models to gender preference
+                const femaleModels = ['nova', 'shimmer', 'alloy'];
+                const maleModels = ['onyx', 'fable', 'echo'];
+                
+                const preferFemale = femaleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'female';
+                const preferMale = maleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'male';
+                
+                if (preferFemale) {
+                    // Try to find female voices
+                    selectedVoice = voices.find(v => 
+                        v.name.toLowerCase().includes('female') ||
+                        v.name.toLowerCase().includes('zira') ||
+                        v.name.toLowerCase().includes('hazel') ||
+                        v.name.toLowerCase().includes('susan') ||
+                        v.name.toLowerCase().includes('samantha') ||
+                        v.name.toLowerCase().includes('karen') ||
+                        v.name.toLowerCase().includes('moira') ||
+                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('female')) ||
+                        v.gender === 'female'
+                    );
+                } else if (preferMale) {
+                    // Try to find male voices
+                    selectedVoice = voices.find(v => 
+                        v.name.toLowerCase().includes('male') ||
+                        v.name.toLowerCase().includes('david') ||
+                        v.name.toLowerCase().includes('mark') ||
+                        v.name.toLowerCase().includes('alex') ||
+                        v.name.toLowerCase().includes('daniel') ||
+                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('male')) ||
+                        v.gender === 'male'
+                    );
+                }
+                
+                // Fallback to first available voice
+                utterance.voice = selectedVoice || voices[0];
+                console.log('[WIDGET] Selected voice for response:', utterance.voice?.name, utterance.voice?.gender);
             }
-        }
-        
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        
-        utterance.onstart = () => {
-            console.log('[WIDGET] Response TTS started');
-            isSpeaking = true;
-            avatar.classList.add('speaking');
-        };
-        
-        utterance.onend = () => {
-            console.log('[WIDGET] Response TTS ended');
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            if (isActive) {
-                setTimeout(startListening, 1000);
-            }
-        };
-        
-        utterance.onerror = (e) => {
-            console.error('[WIDGET] Response TTS error:', e);
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            if (isActive) {
-                setTimeout(startListening, 1000);
-            }
-        };
-        
-        speechSynthesis.speak(utterance);
+            
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
+            
+            utterance.onstart = () => {
+                console.log('[WIDGET] Response TTS started');
+                isSpeaking = true;
+                avatar.classList.add('speaking');
+            };
+            
+            utterance.onend = () => {
+                console.log('[WIDGET] Response TTS ended');
+                isSpeaking = false;
+                avatar.classList.remove('speaking');
+                if (isActive) {
+                    setTimeout(startListening, 1000);
+                }
+            };
+            
+            utterance.onerror = (e) => {
+                console.error('[WIDGET] Response TTS error:', e);
+                isSpeaking = false;
+                avatar.classList.remove('speaking');
+                if (isActive) {
+                    setTimeout(startListening, 1000);
+                }
+            };
+            
+            speechSynthesis.speak(utterance);
+        });
     }
     
     avatar.addEventListener('click', () => {
@@ -316,14 +414,10 @@
             isActive = true;
             sessionId = null;
             
-            // Load voices if not loaded yet
-            if (speechSynthesis.getVoices().length === 0) {
-                speechSynthesis.addEventListener('voiceschanged', () => {
-                    playIntroduction();
-                }, { once: true });
-            } else {
+            // Always wait for voices to be loaded before starting
+            loadVoicesAndWait().then(() => {
                 playIntroduction();
-            }
+            });
         }
     });
     

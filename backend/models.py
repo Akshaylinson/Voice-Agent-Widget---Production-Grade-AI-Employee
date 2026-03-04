@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Text, DateTime, Integer, Boolean, JSON, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
+from pgvector.sqlalchemy import Vector
 from datetime import datetime
 import uuid
 
@@ -14,11 +15,13 @@ class Tenant(Base):
     domain = Column(String(255), nullable=False, unique=True)
     avatar_id = Column(UUID(as_uuid=True))
     introduction_script = Column(Text)
-    voice_model = Column(String(50), default="nova")
+    voice_model = Column(String(50), default="Puck")
     voice_tone = Column(String(50), default="friendly")
+    voice_gender = Column(String(20), default="female")
+    speaking_rate = Column(Float, default=1.0)
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer, default=500)
-    openai_api_key_encrypted = Column(Text, nullable=False)
+    gemini_api_key_encrypted = Column(Text)
     status = Column(String(20), default="active")
     brand_colors = Column(JSON)
     widget_signature = Column(String(255), nullable=False)
@@ -30,8 +33,8 @@ class Avatar(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
-    image_data = Column(Text, nullable=False)  # Base64 encoded image
-    default_voice = Column(String(50), default="nova")
+    image_data = Column(Text, nullable=False)
+    default_voice = Column(String(50), default="Puck")
     personality_prompt = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -43,6 +46,7 @@ class KnowledgeBase(Base):
     category = Column(String(100), nullable=False)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
+    embedding = Column(Vector(768))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

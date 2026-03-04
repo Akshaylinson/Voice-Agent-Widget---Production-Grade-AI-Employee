@@ -1,6 +1,6 @@
-# Voice Agent Widget - Production-Grade AI Employee
+# Voice Agent Widget - Production-Grade AI Employee (Gemini Powered)
 
-A fully containerized, embeddable voice-only conversational AI assistant designed for multi-client SaaS deployment with complete data isolation.
+A fully containerized, embeddable voice-only conversational AI assistant powered by **Google Gemini Live API** with advanced RAG (Retrieval-Augmented Generation) for multi-client SaaS deployment with complete data isolation.
 
 ## 🎯 Features
 

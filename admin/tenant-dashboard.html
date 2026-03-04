@@ -154,12 +154,11 @@
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">Voice Model</label>
                                 <select id="voice_model" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                                    <option value="nova">Nova (Female)</option>
-                                    <option value="shimmer">Shimmer (Female)</option>
-                                    <option value="alloy">Alloy (Neutral)</option>
-                                    <option value="echo">Echo (Male)</option>
-                                    <option value="onyx">Onyx (Male)</option>
-                                    <option value="fable">Fable (British)</option>
+                                    <option value="Puck">Puck (Female - Friendly)</option>
+                                    <option value="Charon">Charon (Male - Professional)</option>
+                                    <option value="Kore">Kore (Female - Warm)</option>
+                                    <option value="Fenrir">Fenrir (Male - Authoritative)</option>
+                                    <option value="Aoede">Aoede (Female - Energetic)</option>
                                 </select>
                             </div>
                             <div>
@@ -200,11 +199,12 @@
 
                     <!-- API Key -->
                     <div class="bg-slate-900 rounded-xl shadow-lg border border-slate-800 p-6">
-                        <h3 class="text-xl font-semibold mb-6">OpenAI API Key</h3>
+                        <h3 class="text-xl font-semibold mb-6">Gemini API Key</h3>
                         <div class="space-y-6">
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">API Key (leave blank to keep current)</label>
-                                <input type="password" id="openai_api_key" placeholder="sk-..." class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <input type="password" id="gemini_api_key" placeholder="AIza..." class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <p class="text-xs text-slate-500 mt-1">Get from: https://makersuite.google.com/app/apikey</p>
                             </div>
                             <button onclick="updateAPIKey()" class="px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition duration-200 font-medium">Update API Key</button>
                         </div>
@@ -433,19 +433,19 @@
         }
 
         async function updateAPIKey() {
-            const key = document.getElementById('openai_api_key').value;
+            const key = document.getElementById('gemini_api_key').value;
             if (!key) {
                 alert('Please enter an API key');
                 return;
             }
-            const data = { openai_api_key: key };
+            const data = { gemini_api_key: key };
             await fetch(`${API_URL}/admin/tenant/${TENANT_ID}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             alert('API key updated');
-            document.getElementById('openai_api_key').value = '';
+            document.getElementById('gemini_api_key').value = '';
         }
 
         function showKnowledgeForm() {

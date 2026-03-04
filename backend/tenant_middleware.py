@@ -64,5 +64,5 @@ async def get_tenant_context(request: Request, db: Session):
             raise HTTPException(status_code=403, detail="Domain not authorized")
     
     logger.info(f"[AUTH] Success: {tenant.company_name}")
-    tenant.decrypted_api_key = decrypt_api_key(tenant.openai_api_key_encrypted)
+    tenant.decrypted_api_key = decrypt_api_key(tenant.gemini_api_key_encrypted) if tenant.gemini_api_key_encrypted else None
     return tenant

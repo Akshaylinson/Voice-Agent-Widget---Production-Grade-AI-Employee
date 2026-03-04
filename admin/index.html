@@ -82,8 +82,9 @@
                                 <p class="text-xs text-slate-500 mt-1">Use 'localhost' for local testing, or your actual domain for production</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-400 mb-2">OpenAI API Key</label>
-                                <input type="password" id="openai_api_key" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                                <label class="block text-sm font-medium text-slate-400 mb-2">Gemini API Key (Optional)</label>
+                                <input type="password" id="gemini_api_key" placeholder="Leave empty to use master key" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                                <p class="text-xs text-slate-500 mt-1">Get from: https://makersuite.google.com/app/apikey</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">Avatar</label>
@@ -95,11 +96,11 @@
                             <div>
                                 <label class="block text-sm font-medium text-slate-400 mb-2">Voice Model</label>
                                 <select id="voice_model" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
-                                    <option value="nova">Nova (Female)</option>
-                                    <option value="shimmer">Shimmer (Female)</option>
-                                    <option value="alloy">Alloy (Male)</option>
-                                    <option value="echo">Echo (Male)</option>
-                                    <option value="onyx">Onyx (Male)</option>
+                                    <option value="Puck">Puck (Female - Friendly)</option>
+                                    <option value="Charon">Charon (Male - Professional)</option>
+                                    <option value="Kore">Kore (Female - Warm)</option>
+                                    <option value="Fenrir">Fenrir (Male - Authoritative)</option>
+                                    <option value="Aoede">Aoede (Female - Energetic)</option>
                                 </select>
                             </div>
                             <div>
@@ -260,7 +261,7 @@
             const data = {
                 company_name: document.getElementById('company_name').value,
                 domain: document.getElementById('domain').value,
-                openai_api_key: document.getElementById('openai_api_key').value,
+                gemini_api_key: document.getElementById('gemini_api_key').value || null,
                 voice_model: document.getElementById('voice_model').value,
                 introduction_script: document.getElementById('introduction_script').value,
                 avatar_id: avatarId || null

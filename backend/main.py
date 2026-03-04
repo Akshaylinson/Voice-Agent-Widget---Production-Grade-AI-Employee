@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +10,8 @@ from datetime import datetime
 import logging
 import os
 import shutil
+import json
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +23,11 @@ logger = logging.getLogger(__name__)
 from database import init_db, get_db
 from models import Tenant, Avatar, KnowledgeBase, Conversation
 from tenant_middleware import get_tenant_context, encrypt_api_key, decrypt_api_key
-from openai_service import transcribe_audio, generate_response, text_to_speech
+from gemini_service import (
+    GeminiLiveSession,
+    retrieve_knowledge_rag,
+    generate_knowledge_embedding
+)
 import hmac
 import hashlib
 
@@ -51,10 +57,12 @@ def startup():
 class TenantCreate(BaseModel):
     company_name: str
     domain: str
-    openai_api_key: str
+    gemini_api_key: Optional[str] = None
     avatar_id: Optional[str] = None
     introduction_script: Optional[str] = None
-    voice_model: str = "nova"
+    voice_model: str = "Puck"
+    voice_gender: str = "female"
+    speaking_rate: float = 1.0
 
 class KnowledgeCreate(BaseModel):
     category: str
@@ -76,7 +84,9 @@ def create_tenant(tenant_data: TenantCreate, db: Session = Depends(get_db)):
         avatar_id=tenant_data.avatar_id,
         introduction_script=tenant_data.introduction_script,
         voice_model=tenant_data.voice_model,
-        openai_api_key_encrypted=encrypt_api_key(tenant_data.openai_api_key),
+        voice_gender=tenant_data.voice_gender,
+        speaking_rate=tenant_data.speaking_rate,
+        gemini_api_key_encrypted=encrypt_api_key(tenant_data.gemini_api_key) if tenant_data.gemini_api_key else None,
         widget_signature=widget_signature
     )
     
@@ -171,9 +181,11 @@ class TenantUpdate(BaseModel):
     introduction_script: Optional[str] = None
     voice_model: Optional[str] = None
     voice_tone: Optional[str] = None
+    voice_gender: Optional[str] = None
+    speaking_rate: Optional[float] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
-    openai_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     brand_colors: Optional[dict] = None
 
 @app.put("/admin/tenant/{tenant_id}")
@@ -200,9 +212,11 @@ def update_tenant(tenant_id: str, data: TenantUpdate, db: Session = Depends(get_
         if data.introduction_script is not None: tenant.introduction_script = data.introduction_script
         if data.voice_model: tenant.voice_model = data.voice_model
         if data.voice_tone: tenant.voice_tone = data.voice_tone
+        if data.voice_gender: tenant.voice_gender = data.voice_gender
+        if data.speaking_rate is not None: tenant.speaking_rate = data.speaking_rate
         if data.temperature is not None: tenant.temperature = data.temperature
         if data.max_tokens: tenant.max_tokens = data.max_tokens
-        if data.openai_api_key: tenant.openai_api_key_encrypted = encrypt_api_key(data.openai_api_key)
+        if data.gemini_api_key: tenant.gemini_api_key_encrypted = encrypt_api_key(data.gemini_api_key)
         if data.brand_colors: tenant.brand_colors = data.brand_colors
         
         db.commit()
@@ -218,7 +232,7 @@ def get_tenant_knowledge(tenant_id: str, db: Session = Depends(get_db)):
     return [{"id": str(k.id), "category": k.category, "title": k.title, "content": k.content, "is_active": k.is_active} for k in knowledge]
 
 @app.post("/admin/tenant/{tenant_id}/knowledge")
-def create_tenant_knowledge(tenant_id: str, knowledge: KnowledgeCreate, db: Session = Depends(get_db)):
+async def create_tenant_knowledge(tenant_id: str, knowledge: KnowledgeCreate, db: Session = Depends(get_db)):
     entry = KnowledgeBase(
         tenant_id=tenant_id,
         category=knowledge.category,
@@ -227,6 +241,16 @@ def create_tenant_knowledge(tenant_id: str, knowledge: KnowledgeCreate, db: Sess
     )
     db.add(entry)
     db.commit()
+    db.refresh(entry)
+    
+    # Generate embedding asynchronously
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        api_key = decrypt_api_key(tenant.gemini_api_key_encrypted) if tenant.gemini_api_key_encrypted else None
+        await generate_knowledge_embedding(db, str(entry.id), api_key)
+    except Exception as e:
+        logger.error(f"Embedding generation failed: {e}")
+    
     return {"status": "created", "id": str(entry.id)}
 
 class KnowledgeUpdate(BaseModel):
@@ -367,7 +391,8 @@ async def get_config(request: Request, db: Session = Depends(get_db)):
         "company_name": tenant.company_name,
         "avatar_url": avatar_data,  # Now returns base64 data URL
         "introduction_script": tenant.introduction_script,
-        "voice_model": tenant.voice_model,
+        "voice_model": tenant.voice_model or "nova",
+        "voice_gender": tenant.voice_gender or "female",
         "brand_colors": tenant.brand_colors
     }
 
@@ -377,24 +402,20 @@ async def process_text_query(data: TextQuery, request: Request, db: Session = De
     session_id = data.session_id or str(uuid.uuid4())
     
     try:
-        # Get knowledge base
-        knowledge = db.query(KnowledgeBase).filter(
-            KnowledgeBase.tenant_id == tenant.id,
-            KnowledgeBase.is_active == True
-        ).all()
-        
-        knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
-        
         # Get API key (tenant-specific or master)
-        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
+        api_key = tenant.decrypted_api_key if hasattr(tenant, 'decrypted_api_key') else None
         
-        # Generate response using OpenRouter
-        response_text = await generate_response(
-            data.query,
-            knowledge_context,
-            tenant.company_name,
-            api_key
+        # Initialize Gemini session with RAG
+        gemini_session = GeminiLiveSession(
+            tenant_id=str(tenant.id),
+            company_name=tenant.company_name,
+            api_key=api_key,
+            db=db
         )
+        await gemini_session.initialize()
+        
+        # Process query
+        response_text = await gemini_session.process_text_query(data.query)
         
         # Save conversation
         conversation = Conversation(
@@ -443,41 +464,20 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
 
 @app.get("/api/introduction")
 async def get_introduction(request: Request, db: Session = Depends(get_db)):
-    """Generate introduction audio using OpenRouter TTS"""
+    """Return introduction text for browser TTS"""
     logger.info(f"[INTRODUCTION] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
     logger.info(f"[INTRODUCTION] Tenant: {tenant.company_name}")
     
     if not tenant.introduction_script:
-        from fastapi.responses import Response
-        return Response(content=b"", media_type="audio/mpeg")
+        return JSONResponse(content={"text": ""})
     
-    try:
-        # Get API key (tenant-specific or master)
-        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
-        
-        # Generate audio using OpenRouter
-        audio_bytes = await text_to_speech(
-            tenant.introduction_script,
-            tenant.voice_model or "alloy",
-            api_key
-        )
-        
-        from fastapi.responses import StreamingResponse
-        import io
-        return StreamingResponse(
-            io.BytesIO(audio_bytes),
-            media_type="audio/mpeg"
-        )
-    except Exception as e:
-        logger.error(f"[INTRODUCTION] TTS failed: {e}")
-        from fastapi.responses import Response
-        return Response(content=b"", media_type="audio/mpeg")
+    return JSONResponse(content={"text": tenant.introduction_script})
 
 @app.post("/api/voice-query")
 async def voice_query(request: Request, db: Session = Depends(get_db)):
-    """Process voice query: Browser STT → OpenRouter LLM → OpenRouter TTS"""
+    """Process voice query: Browser STT → Gemini LLM → Browser TTS"""
     logger.info(f"[VOICE-QUERY] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
@@ -485,7 +485,7 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
     
     # Parse form data (browser sends transcribed text)
     form = await request.form()
-    transcript = form.get("transcript")  # Browser already transcribed via Web Speech API
+    transcript = form.get("transcript")
     session_id = form.get("session_id") or str(uuid.uuid4())
     
     if not transcript:
@@ -495,31 +495,21 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         logger.info(f"[VOICE-QUERY] Transcript: {transcript}")
         
         # Get API key (tenant-specific or master)
-        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
+        api_key = tenant.decrypted_api_key if hasattr(tenant, 'decrypted_api_key') else None
         
-        # Step 1: Get knowledge base
-        knowledge = db.query(KnowledgeBase).filter(
-            KnowledgeBase.tenant_id == tenant.id,
-            KnowledgeBase.is_active == True
-        ).all()
-        knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
-        
-        # Step 2: Generate response using OpenRouter GPT-4o-mini
-        response_text = await generate_response(
-            transcript,
-            knowledge_context,
-            tenant.company_name,
-            api_key
+        # Initialize Gemini session with RAG
+        gemini_session = GeminiLiveSession(
+            tenant_id=str(tenant.id),
+            company_name=tenant.company_name,
+            api_key=api_key,
+            db=db
         )
+        await gemini_session.initialize()
         
-        # Step 3: Convert to speech using OpenRouter GPT-4o Audio Preview
-        response_audio = await text_to_speech(
-            response_text,
-            tenant.voice_model or "alloy",
-            api_key
-        )
+        # Generate response using Gemini
+        response_text = await gemini_session.process_text_query(transcript)
         
-        # Step 4: Save conversation
+        # Save conversation
         conversation = Conversation(
             tenant_id=tenant.id,
             session_id=session_id,
@@ -533,13 +523,9 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         
         logger.info(f"[VOICE-QUERY] Success: {response_text[:100]}...")
         
-        # Return audio as streaming response
-        from fastapi.responses import StreamingResponse
-        import io
-        return StreamingResponse(
-            io.BytesIO(response_audio),
-            media_type="audio/mpeg",
-            headers={"X-Session-ID": session_id}
+        # Return text response for browser TTS
+        return JSONResponse(
+            content={"response": response_text, "session_id": session_id}
         )
         
     except Exception as e:
@@ -548,4 +534,65 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "version": "2.0-multi-tenant"}
+    return {"status": "healthy", "version": "3.0-gemini-multi-tenant"}
+
+# WebSocket endpoint for real-time streaming (advanced)
+@app.websocket("/ws/voice-stream")
+async def voice_stream_websocket(websocket: WebSocket, db: Session = Depends(get_db)):
+    """WebSocket for real-time audio streaming with Gemini Live API"""
+    await websocket.accept()
+    
+    try:
+        # Receive authentication
+        auth_data = await websocket.receive_json()
+        tenant_id = auth_data.get("tenant_id")
+        signature = auth_data.get("signature")
+        
+        if not tenant_id or not signature:
+            await websocket.close(code=1008, reason="Missing credentials")
+            return
+        
+        # Verify tenant
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant or tenant.widget_signature != signature:
+            await websocket.close(code=1008, reason="Invalid credentials")
+            return
+        
+        logger.info(f"[WS] Connected: {tenant.company_name}")
+        
+        # Get API key
+        api_key = decrypt_api_key(tenant.gemini_api_key_encrypted) if tenant.gemini_api_key_encrypted else None
+        
+        # Initialize Gemini session
+        gemini_session = GeminiLiveSession(
+            tenant_id=str(tenant.id),
+            company_name=tenant.company_name,
+            api_key=api_key,
+            db=db
+        )
+        await gemini_session.initialize()
+        
+        # Send ready signal
+        await websocket.send_json({"status": "ready"})
+        
+        # Handle streaming messages
+        while True:
+            message = await websocket.receive_json()
+            
+            if message.get("type") == "text_query":
+                query = message.get("query")
+                response = await gemini_session.process_text_query(query)
+                
+                await websocket.send_json({
+                    "type": "response",
+                    "text": response
+                })
+            
+            elif message.get("type") == "close":
+                break
+    
+    except WebSocketDisconnect:
+        logger.info("[WS] Client disconnected")
+    except Exception as e:
+        logger.error(f"[WS] Error: {e}")
+        await websocket.close(code=1011, reason=str(e))
