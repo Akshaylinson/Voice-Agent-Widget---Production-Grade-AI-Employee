@@ -359,7 +359,7 @@ def list_avatars(db: Session = Depends(get_db)):
         "name": a.name,
         "gender": a.gender,
         "voice_name": a.voice_name,
-        "browser_voice_name": a.browser_voice_name,
+        "browser_voice_name": getattr(a, 'browser_voice_name', None),
         "voice_provider": a.voice_provider,
         "image_data": a.image_data
     } for a in avatars]

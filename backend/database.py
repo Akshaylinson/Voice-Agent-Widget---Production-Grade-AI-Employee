@@ -22,6 +22,18 @@ def init_db():
     # Create tables
     Base.metadata.create_all(bind=engine)
     logger.info("[DB] Database initialized")
+    
+    # Run migration for browser_voice_name
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                ALTER TABLE avatars 
+                ADD COLUMN IF NOT EXISTS browser_voice_name VARCHAR(100);
+            """))
+            conn.commit()
+            logger.info("[DB] Migration: browser_voice_name column added")
+    except Exception as e:
+        logger.warning(f"[DB] Migration warning: {e}")
 
 def get_db():
     db = SessionLocal()
