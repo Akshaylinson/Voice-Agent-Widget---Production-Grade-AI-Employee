@@ -469,6 +469,7 @@ async def get_config(request: Request, db: Session = Depends(get_db)):
     avatar_data = None
     avatar_gender = "female"
     voice_name = "en-US-Neural2-F"
+    browser_voice_name = None
     
     if tenant.avatar_id:
         avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
@@ -476,6 +477,7 @@ async def get_config(request: Request, db: Session = Depends(get_db)):
             avatar_data = avatar.image_data
             avatar_gender = avatar.gender or "female"
             voice_name = avatar.voice_name or "en-US-Neural2-F"
+            browser_voice_name = getattr(avatar, 'browser_voice_name', None)
     
     return {
         "company_name": tenant.company_name,
@@ -483,6 +485,7 @@ async def get_config(request: Request, db: Session = Depends(get_db)):
         "introduction_script": tenant.introduction_script,
         "avatar_gender": avatar_gender,
         "voice_name": voice_name,
+        "browser_voice_name": browser_voice_name,
         "brand_colors": tenant.brand_colors
     }
 

@@ -547,6 +547,12 @@
             }, 3000);
         }
 
+        function openTenantDashboard(tenantId) {
+            const baseUrl = window.location.origin;
+            const path = window.location.pathname.includes('/admin/') ? '/admin/tenant-dashboard.html' : '/tenant-dashboard.html';
+            window.open(`${baseUrl}${path}?id=${tenantId}`, '_blank');
+        }
+
         // Initialize
         loadTenants();
         loadAvatars();

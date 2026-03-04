@@ -111,7 +111,7 @@
     
     async function playIntroduction() {
         try {
-            console.log('[WIDGET] Fetching introduction audio from OpenAI TTS');
+            console.log('[WIDGET] Fetching introduction audio from Google Cloud TTS');
             
             const res = await fetch(`${WIDGET_API_URL}/introduction`, {
                 headers: {
@@ -128,6 +128,13 @@
                     playAudio(blob, () => startListening());
                     return;
                 }
+            }
+            
+            // Fallback to browser TTS
+            const data = await res.json();
+            if (data.text && config?.browser_voice_name) {
+                playBrowserTTS(data.text, () => startListening());
+                return;
             }
             
             startListening();
@@ -208,9 +215,16 @@
                 }
             }
             
-            // Fallback to text response
+            // Fallback to browser TTS
             const data = await res.json();
             console.log('[WIDGET] Text response:', data.response);
+            
+            if (data.response && config?.browser_voice_name) {
+                playBrowserTTS(data.response, () => {
+                    if (isActive) setTimeout(startListening, 1000);
+                });
+                return;
+            }
             
             if (isActive) setTimeout(startListening, 1000);
             
@@ -218,6 +232,41 @@
             console.error('[WIDGET] Voice query failed:', e);
             if (isActive) setTimeout(startListening, 1000);
         }
+    }
+    
+    function playBrowserTTS(text, onComplete) {
+        if (!('speechSynthesis' in window)) {
+            console.warn('[WIDGET] Browser TTS not supported');
+            if (onComplete) onComplete();
+            return;
+        }
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        if (config?.browser_voice_name) {
+            const voices = speechSynthesis.getVoices();
+            const voice = voices.find(v => v.name === config.browser_voice_name);
+            if (voice) utterance.voice = voice;
+        }
+        
+        utterance.onstart = () => {
+            isSpeaking = true;
+            avatar.classList.add('speaking');
+        };
+        
+        utterance.onend = () => {
+            isSpeaking = false;
+            avatar.classList.remove('speaking');
+            if (onComplete) onComplete();
+        };
+        
+        utterance.onerror = () => {
+            isSpeaking = false;
+            avatar.classList.remove('speaking');
+            if (onComplete) onComplete();
+        };
+        
+        speechSynthesis.speak(utterance);
     }
     
     avatar.addEventListener('click', () => {
