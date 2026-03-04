@@ -342,6 +342,10 @@
                         <img src="${a.image_data}" alt="${a.name}" class="w-24 h-24 rounded-full object-cover mx-auto border-3 border-slate-700">
                         <p class="text-center text-lg font-semibold mt-4">${a.name}</p>
                         <p class="text-center text-sm text-slate-400">${a.gender} - ${a.voice_name}</p>
+                        <div class="flex gap-2 justify-center mt-4">
+                            <button onclick="editAvatar('${a.id}')" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 transition duration-200">Edit</button>
+                            <button onclick="deleteAvatar('${a.id}')" class="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-500 transition duration-200">Delete</button>
+                        </div>
                     </div>
                 `).join('');
                 
@@ -375,6 +379,121 @@
             } else {
                 preview.innerHTML = '';
             }
+        }
+
+        let currentEditAvatarId = null;
+        let currentDeleteAvatarId = null;
+
+        function loadEditVoicesByGender() {
+            const gender = document.getElementById('edit_avatar_gender').value;
+            const select = document.getElementById('edit_avatar_voice');
+            const voices = voicesCache[gender] || [];
+            
+            select.innerHTML = voices.map(v => 
+                `<option value="${v.name}">${v.label}</option>`
+            ).join('');
+        }
+
+        async function editAvatar(avatarId) {
+            currentEditAvatarId = avatarId;
+            const avatar = avatarsCache.find(a => a.id === avatarId);
+            
+            if (!avatar) return;
+            
+            document.getElementById('edit_avatar_name').value = avatar.name;
+            document.getElementById('edit_avatar_gender').value = avatar.gender;
+            
+            await loadVoices();
+            loadEditVoicesByGender();
+            document.getElementById('edit_avatar_voice').value = avatar.voice_name;
+            
+            document.getElementById('edit_avatar_preview').innerHTML = `
+                <img src="${avatar.image_data}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid #e5e7eb;">
+            `;
+            
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        document.getElementById('edit_avatar_file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('edit_avatar_preview').innerHTML = 
+                        `<img src="${e.target.result}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid #e5e7eb;">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        async function saveAvatarEdit() {
+            const name = document.getElementById('edit_avatar_name').value;
+            const gender = document.getElementById('edit_avatar_gender').value;
+            const voice_name = document.getElementById('edit_avatar_voice').value;
+            const fileInput = document.getElementById('edit_avatar_file');
+            const file = fileInput.files[0];
+            
+            if (!name || !voice_name) {
+                showToast('Please fill all required fields', 'error');
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('name', name);
+                formData.append('gender', gender);
+                formData.append('voice_name', voice_name);
+                if (file) {
+                    formData.append('image_file', file);
+                }
+                
+                const res = await fetch(`${API_URL}/admin/avatars/${currentEditAvatarId}`, {
+                    method: 'PUT',
+                    body: formData
+                });
+                
+                if (!res.ok) throw new Error('Failed to update avatar');
+                
+                closeEditModal();
+                await loadAvatars();
+                showToast('Avatar updated successfully', 'success');
+            } catch (e) {
+                console.error('Update avatar error:', e);
+                showToast('Failed to update avatar', 'error');
+            }
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+            document.getElementById('edit_avatar_file').value = '';
+            currentEditAvatarId = null;
+        }
+
+        function deleteAvatar(avatarId) {
+            currentDeleteAvatarId = avatarId;
+            document.getElementById('delete-modal').classList.remove('hidden');
+        }
+
+        async function confirmDelete() {
+            try {
+                const res = await fetch(`${API_URL}/admin/avatars/${currentDeleteAvatarId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!res.ok) throw new Error('Failed to delete avatar');
+                
+                closeDeleteModal();
+                await loadAvatars();
+                showToast('Avatar deleted successfully', 'success');
+            } catch (e) {
+                console.error('Delete avatar error:', e);
+                showToast('Failed to delete avatar', 'error');
+            }
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('delete-modal').classList.add('hidden');
+            currentDeleteAvatarId = null;
         }
 
         function showToast(message, type = 'success') {

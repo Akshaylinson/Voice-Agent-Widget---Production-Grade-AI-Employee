@@ -365,12 +365,12 @@ class AvatarUpdate(BaseModel):
     image_data: Optional[str] = None
     default_voice: Optional[str] = None
 
-@app.put("/admin/avatar/{avatar_id}")
+@app.put("/admin/avatars/{avatar_id}")
 async def update_avatar(
     avatar_id: str, 
-    name: Optional[str] = None,
-    gender: Optional[str] = None,
-    voice_name: Optional[str] = None,
+    name: str = Form(...),
+    gender: str = Form(...),
+    voice_name: str = Form(...),
     image_file: Optional[UploadFile] = File(None), 
     db: Session = Depends(get_db)
 ):
@@ -380,16 +380,13 @@ async def update_avatar(
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
-    if name:
-        avatar.name = name
+    avatar.name = name
     
-    if gender:
-        if gender.lower() not in ["male", "female"]:
-            raise HTTPException(status_code=400, detail="Gender must be 'male' or 'female'")
-        avatar.gender = gender.lower()
+    if gender.lower() not in ["male", "female"]:
+        raise HTTPException(status_code=400, detail="Gender must be 'male' or 'female'")
+    avatar.gender = gender.lower()
     
-    if voice_name:
-        avatar.voice_name = voice_name
+    avatar.voice_name = voice_name
     
     if image_file:
         image_bytes = await image_file.read()
@@ -401,11 +398,12 @@ async def update_avatar(
     return {
         "status": "updated", 
         "id": str(avatar.id),
+        "name": avatar.name,
         "gender": avatar.gender,
         "voice_name": avatar.voice_name
     }
 
-@app.delete("/admin/avatar/{avatar_id}")
+@app.delete("/admin/avatars/{avatar_id}")
 def delete_avatar(avatar_id: str, db: Session = Depends(get_db)):
     # Check if avatar is assigned to any tenant
     tenant_count = db.query(Tenant).filter(Tenant.avatar_id == avatar_id).count()
