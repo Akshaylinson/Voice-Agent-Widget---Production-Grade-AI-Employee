@@ -557,7 +557,7 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
 
 @app.get("/api/introduction")
 async def get_introduction(request: Request, db: Session = Depends(get_db)):
-    """Return introduction audio using Google Cloud TTS with avatar voice"""
+    """Return introduction audio using Google Cloud TTS with avatar voice, fallback to text for browser TTS"""
     from google_tts_service import GoogleTTSService
     from fastapi.responses import StreamingResponse
     import io
@@ -569,6 +569,7 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
     logger.info(f"[INTRODUCTION] Tenant: {tenant.company_name}")
     
     if not tenant.introduction_script:
+        logger.warning("[INTRODUCTION] No introduction script configured")
         return JSONResponse(content={"text": ""})
     
     try:
@@ -578,8 +579,11 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
             avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
         
         if not avatar:
-            logger.warning("[INTRODUCTION] No avatar found, returning text")
-            return JSONResponse(content={"text": tenant.introduction_script})
+            logger.warning("[INTRODUCTION] No avatar found, returning text for browser TTS")
+            return JSONResponse(content={
+                "text": tenant.introduction_script,
+                "browser_voice_name": None
+            })
         
         start_time = time.time()
         
@@ -589,34 +593,45 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
         speaking_rate = tenant.speaking_rate or 1.0
         pitch = tenant.pitch or 0.0
         
-        audio_content = await GoogleTTSService.generate_audio(
-            tenant.introduction_script,
-            voice_name,
-            gender,
-            speaking_rate,
-            pitch
-        )
-        
-        generation_time = time.time() - start_time
-        logger.info(f"[INTRODUCTION] Generated in {generation_time:.2f}s with voice: {voice_name} ({gender})")
-        
-        if audio_content:
-            return StreamingResponse(
-                io.BytesIO(audio_content),
-                media_type="audio/mpeg",
-                headers={"X-Voice-Name": voice_name, "X-Avatar-Gender": gender}
+        try:
+            audio_content = await GoogleTTSService.generate_audio(
+                tenant.introduction_script,
+                voice_name,
+                gender,
+                speaking_rate,
+                pitch
             )
-        else:
-            logger.warning("[INTRODUCTION] TTS failed, returning text")
-            return JSONResponse(content={"text": tenant.introduction_script})
+            
+            generation_time = time.time() - start_time
+            logger.info(f"[INTRODUCTION] Generated in {generation_time:.2f}s with voice: {voice_name} ({gender})")
+            
+            if audio_content and len(audio_content) > 0:
+                return StreamingResponse(
+                    io.BytesIO(audio_content),
+                    media_type="audio/mpeg",
+                    headers={"X-Voice-Name": voice_name, "X-Avatar-Gender": gender}
+                )
+        except Exception as tts_error:
+            logger.warning(f"[INTRODUCTION] Google TTS failed: {tts_error}")
+        
+        # Fallback to browser TTS
+        logger.info("[INTRODUCTION] Falling back to browser TTS")
+        return JSONResponse(content={
+            "text": tenant.introduction_script,
+            "browser_voice_name": getattr(avatar, 'browser_voice_name', None),
+            "avatar_gender": gender
+        })
             
     except Exception as e:
         logger.error(f"[INTRODUCTION] Error: {e}")
-        return JSONResponse(content={"text": tenant.introduction_script})
+        return JSONResponse(content={
+            "text": tenant.introduction_script,
+            "browser_voice_name": None
+        })
 
 @app.post("/api/voice-query")
 async def voice_query(request: Request, db: Session = Depends(get_db)):
-    """Process voice query: Browser STT → Gemini LLM → Google Cloud TTS with avatar voice"""
+    """Process voice query: Browser STT → Gemini LLM → Google Cloud TTS with avatar voice, fallback to browser TTS"""
     from google_tts_service import GoogleTTSService
     from fastapi.responses import StreamingResponse
     import io
@@ -670,8 +685,12 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
             avatar = db.query(Avatar).filter(Avatar.id == tenant.avatar_id).first()
         
         if not avatar:
-            logger.warning("[VOICE-QUERY] No avatar found, returning text")
-            return JSONResponse(content={"response": response_text, "session_id": session_id})
+            logger.warning("[VOICE-QUERY] No avatar found, returning text for browser TTS")
+            return JSONResponse(content={
+                "response": response_text, 
+                "session_id": session_id,
+                "browser_voice_name": None
+            })
         
         # Generate audio using avatar voice configuration
         start_time = time.time()
@@ -680,30 +699,39 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         speaking_rate = tenant.speaking_rate or 1.0
         pitch = tenant.pitch or 0.0
         
-        audio_content = await GoogleTTSService.generate_audio(
-            response_text,
-            voice_name,
-            gender,
-            speaking_rate,
-            pitch
-        )
-        
-        generation_time = time.time() - start_time
-        logger.info(f"[VOICE-QUERY] TTS generated in {generation_time:.2f}s with voice: {voice_name} ({gender})")
-        
-        if audio_content:
-            return StreamingResponse(
-                io.BytesIO(audio_content),
-                media_type="audio/mpeg",
-                headers={
-                    "X-Session-ID": session_id,
-                    "X-Voice-Name": voice_name,
-                    "X-Avatar-Gender": gender
-                }
+        try:
+            audio_content = await GoogleTTSService.generate_audio(
+                response_text,
+                voice_name,
+                gender,
+                speaking_rate,
+                pitch
             )
-        else:
-            logger.warning("[VOICE-QUERY] TTS failed, returning text")
-            return JSONResponse(content={"response": response_text, "session_id": session_id})
+            
+            generation_time = time.time() - start_time
+            logger.info(f"[VOICE-QUERY] TTS generated in {generation_time:.2f}s with voice: {voice_name} ({gender})")
+            
+            if audio_content and len(audio_content) > 0:
+                return StreamingResponse(
+                    io.BytesIO(audio_content),
+                    media_type="audio/mpeg",
+                    headers={
+                        "X-Session-ID": session_id,
+                        "X-Voice-Name": voice_name,
+                        "X-Avatar-Gender": gender
+                    }
+                )
+        except Exception as tts_error:
+            logger.warning(f"[VOICE-QUERY] Google TTS failed: {tts_error}")
+        
+        # Fallback to browser TTS
+        logger.info("[VOICE-QUERY] Falling back to browser TTS")
+        return JSONResponse(content={
+            "response": response_text, 
+            "session_id": session_id,
+            "browser_voice_name": getattr(avatar, 'browser_voice_name', None),
+            "avatar_gender": gender
+        })
         
     except Exception as e:
         logger.error(f"[VOICE-QUERY] Error: {e}")

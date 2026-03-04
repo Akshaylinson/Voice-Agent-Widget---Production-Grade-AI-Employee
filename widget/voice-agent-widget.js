@@ -111,7 +111,7 @@
     
     async function playIntroduction() {
         try {
-            console.log('[WIDGET] Fetching introduction audio from Google Cloud TTS');
+            console.log('[WIDGET] Fetching introduction audio');
             
             const res = await fetch(`${WIDGET_API_URL}/introduction`, {
                 headers: {
@@ -120,27 +120,47 @@
                 }
             });
             
+            if (!res.ok) {
+                console.warn('[WIDGET] Introduction fetch failed, using browser TTS');
+                if (config?.introduction_script) {
+                    playBrowserTTS(config.introduction_script, () => startListening());
+                } else {
+                    startListening();
+                }
+                return;
+            }
+            
             const contentType = res.headers.get('content-type');
             
+            // Try Google Cloud TTS audio
             if (contentType && contentType.includes('audio')) {
                 const blob = await res.blob();
                 if (blob.size > 0) {
+                    console.log('[WIDGET] Playing Google Cloud TTS audio');
                     playAudio(blob, () => startListening());
                     return;
                 }
             }
             
             // Fallback to browser TTS
+            console.log('[WIDGET] No audio, trying browser TTS fallback');
             const data = await res.json();
-            if (data.text && config?.browser_voice_name) {
+            if (data.text) {
                 playBrowserTTS(data.text, () => startListening());
-                return;
+            } else if (config?.introduction_script) {
+                playBrowserTTS(config.introduction_script, () => startListening());
+            } else {
+                startListening();
             }
             
-            startListening();
         } catch (e) {
             console.error('[WIDGET] Introduction failed:', e);
-            startListening();
+            // Final fallback
+            if (config?.introduction_script) {
+                playBrowserTTS(config.introduction_script, () => startListening());
+            } else {
+                startListening();
+            }
         }
     }
     
@@ -199,15 +219,20 @@
                 body: formData
             });
             
-            if (!res.ok) throw new Error('Voice query failed');
+            if (!res.ok) {
+                console.error('[WIDGET] Voice query failed with status:', res.status);
+                throw new Error('Voice query failed');
+            }
             
             sessionId = res.headers.get('X-Session-ID') || sessionId;
             
             const contentType = res.headers.get('content-type');
             
+            // Try Google Cloud TTS audio
             if (contentType && contentType.includes('audio')) {
                 const blob = await res.blob();
                 if (blob.size > 0) {
+                    console.log('[WIDGET] Playing Google Cloud TTS response');
                     playAudio(blob, () => {
                         if (isActive) setTimeout(startListening, 1000);
                     });
@@ -216,17 +241,17 @@
             }
             
             // Fallback to browser TTS
+            console.log('[WIDGET] Using browser TTS fallback');
             const data = await res.json();
             console.log('[WIDGET] Text response:', data.response);
             
-            if (data.response && config?.browser_voice_name) {
+            if (data.response) {
                 playBrowserTTS(data.response, () => {
                     if (isActive) setTimeout(startListening, 1000);
                 });
-                return;
+            } else {
+                if (isActive) setTimeout(startListening, 1000);
             }
-            
-            if (isActive) setTimeout(startListening, 1000);
             
         } catch (e) {
             console.error('[WIDGET] Voice query failed:', e);
@@ -241,26 +266,55 @@
             return;
         }
         
+        console.log('[WIDGET] Playing browser TTS:', text.substring(0, 50) + '...');
+        
         const utterance = new SpeechSynthesisUtterance(text);
         
-        if (config?.browser_voice_name) {
+        // Load voices and select appropriate one
+        const setVoice = () => {
             const voices = speechSynthesis.getVoices();
-            const voice = voices.find(v => v.name === config.browser_voice_name);
-            if (voice) utterance.voice = voice;
+            
+            if (config?.browser_voice_name) {
+                const voice = voices.find(v => v.name === config.browser_voice_name);
+                if (voice) {
+                    utterance.voice = voice;
+                    console.log('[WIDGET] Using configured voice:', voice.name);
+                }
+            } else if (config?.avatar_gender) {
+                // Auto-select based on gender
+                const genderVoice = voices.find(v => 
+                    v.lang.startsWith('en') && 
+                    (config.avatar_gender === 'female' ? v.name.includes('Female') : v.name.includes('Male'))
+                );
+                if (genderVoice) {
+                    utterance.voice = genderVoice;
+                    console.log('[WIDGET] Using gender-matched voice:', genderVoice.name);
+                }
+            }
+        };
+        
+        // Voices might not be loaded yet
+        if (speechSynthesis.getVoices().length > 0) {
+            setVoice();
+        } else {
+            speechSynthesis.onvoiceschanged = setVoice;
         }
         
         utterance.onstart = () => {
             isSpeaking = true;
             avatar.classList.add('speaking');
+            console.log('[WIDGET] Browser TTS started');
         };
         
         utterance.onend = () => {
             isSpeaking = false;
             avatar.classList.remove('speaking');
+            console.log('[WIDGET] Browser TTS ended');
             if (onComplete) onComplete();
         };
         
-        utterance.onerror = () => {
+        utterance.onerror = (e) => {
+            console.error('[WIDGET] Browser TTS error:', e);
             isSpeaking = false;
             avatar.classList.remove('speaking');
             if (onComplete) onComplete();

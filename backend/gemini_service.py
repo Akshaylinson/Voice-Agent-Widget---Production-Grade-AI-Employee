@@ -27,6 +27,9 @@ class GeminiLiveSession:
         self.model = None
         self.chat = None
         
+        if not self.api_key:
+            raise ValueError("Gemini API key is required")
+        
         genai.configure(api_key=self.api_key)
     
     async def initialize(self):
@@ -36,7 +39,7 @@ class GeminiLiveSession:
             knowledge_context = await self._get_knowledge_context()
             
             # Build system instruction
-            system_instruction = f"""You are an AI employee of {self.company_name}.
+            self.system_instruction = f"""You are an AI employee of {self.company_name}.
 
 CRITICAL RULES:
 - Answer ONLY using the provided company knowledge below
@@ -47,11 +50,16 @@ CRITICAL RULES:
 COMPANY KNOWLEDGE:
 {knowledge_context}"""
             
-            # Initialize model
-            self.model = genai.GenerativeModel(
-                model_name=GEMINI_LIVE_MODEL,
-                system_instruction=system_instruction
-            )
+            # Initialize model (without system_instruction for older SDK)
+            try:
+                self.model = genai.GenerativeModel(
+                    model_name=GEMINI_LIVE_MODEL,
+                    system_instruction=self.system_instruction
+                )
+            except TypeError:
+                # Fallback for older SDK versions
+                logger.warning("[GEMINI] Using older SDK without system_instruction")
+                self.model = genai.GenerativeModel(model_name=GEMINI_LIVE_MODEL)
             
             self.chat = self.model.start_chat(history=[])
             logger.info(f"[GEMINI] Session initialized for {self.company_name}")
@@ -88,10 +96,16 @@ COMPANY KNOWLEDGE:
         try:
             logger.info(f"[GEMINI] Processing query: {query[:100]}...")
             
+            # Prepend system instruction to query for older SDK
+            if hasattr(self, 'system_instruction'):
+                full_query = f"{self.system_instruction}\n\nUser Query: {query}"
+            else:
+                full_query = query
+            
             # Generate response
             response = await asyncio.to_thread(
                 self.chat.send_message,
-                query
+                full_query
             )
             
             answer = response.text

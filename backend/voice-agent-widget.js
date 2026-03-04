@@ -54,20 +54,40 @@
         try {
             const res = await fetch(`${WIDGET_API_URL}/introduction`);
             if (!res.ok) throw new Error('Failed to fetch intro');
-            const blob = await res.blob();
-            if (!blob || blob.size === 0) {
-                console.warn('No audio available, skipping intro');
-                startListening();
-                return;
+            
+            const contentType = res.headers.get('content-type');
+            
+            // Try audio first
+            if (contentType && contentType.includes('audio')) {
+                const blob = await res.blob();
+                if (blob && blob.size > 0) {
+                    const audioUrl = URL.createObjectURL(blob);
+                    currentAudio = new Audio(audioUrl);
+                    currentAudio.onerror = () => { 
+                        console.error('Audio playback error'); 
+                        URL.revokeObjectURL(audioUrl); 
+                        startListening(); 
+                    };
+                    currentAudio.onended = () => { 
+                        isSpeaking = false; 
+                        avatar.classList.remove('speaking'); 
+                        URL.revokeObjectURL(audioUrl); 
+                        startListening(); 
+                    };
+                    isSpeaking = true;
+                    avatar.classList.add('speaking');
+                    await currentAudio.play();
+                    return;
+                }
             }
-            const audioUrl = URL.createObjectURL(blob);
-            currentAudio = new Audio(audioUrl);
-            currentAudio.onerror = () => { console.error('Audio playback error'); URL.revokeObjectURL(audioUrl); startListening(); };
-            currentAudio.onended = () => { isSpeaking = false; avatar.classList.remove('speaking'); URL.revokeObjectURL(audioUrl); startListening(); };
-            isSpeaking = true;
-            avatar.classList.add('speaking');
-            await currentAudio.play();
-        } catch (e) { console.error('Intro failed:', e); startListening(); }
+            
+            // Fallback to text
+            console.warn('No audio available, skipping intro');
+            startListening();
+        } catch (e) { 
+            console.error('Intro failed:', e); 
+            startListening(); 
+        }
     }
     
     async function startListening() {
