@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
-GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-exp")
 
 class GeminiLiveSession:
     """Manages Gemini Live API streaming session"""
@@ -53,13 +52,13 @@ COMPANY KNOWLEDGE:
             # Initialize model (without system_instruction for older SDK)
             try:
                 self.model = genai.GenerativeModel(
-                    model_name=GEMINI_LIVE_MODEL,
+                    model_name=GEMINI_MODEL,
                     system_instruction=self.system_instruction
                 )
             except TypeError:
                 # Fallback for older SDK versions
                 logger.warning("[GEMINI] Using older SDK without system_instruction")
-                self.model = genai.GenerativeModel(model_name=GEMINI_LIVE_MODEL)
+                self.model = genai.GenerativeModel(model_name=GEMINI_MODEL)
             
             self.chat = self.model.start_chat(history=[])
             logger.info(f"[GEMINI] Session initialized for {self.company_name}")

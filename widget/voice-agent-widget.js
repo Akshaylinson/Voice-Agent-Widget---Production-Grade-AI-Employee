@@ -111,7 +111,7 @@
     
     async function playIntroduction() {
         try {
-            console.log('[WIDGET] Fetching introduction audio');
+            console.log('[WIDGET] Fetching introduction');
             
             const res = await fetch(`${WIDGET_API_URL}/introduction`, {
                 headers: {
@@ -121,7 +121,7 @@
             });
             
             if (!res.ok) {
-                console.warn('[WIDGET] Introduction fetch failed, using browser TTS');
+                console.warn('[WIDGET] Introduction fetch failed');
                 if (config?.introduction_script) {
                     playBrowserTTS(config.introduction_script, () => startListening());
                 } else {
@@ -130,20 +130,6 @@
                 return;
             }
             
-            const contentType = res.headers.get('content-type');
-            
-            // Try Google Cloud TTS audio
-            if (contentType && contentType.includes('audio')) {
-                const blob = await res.blob();
-                if (blob.size > 0) {
-                    console.log('[WIDGET] Playing Google Cloud TTS audio');
-                    playAudio(blob, () => startListening());
-                    return;
-                }
-            }
-            
-            // Fallback to browser TTS
-            console.log('[WIDGET] No audio, trying browser TTS fallback');
             const data = await res.json();
             if (data.text) {
                 playBrowserTTS(data.text, () => startListening());
@@ -155,40 +141,12 @@
             
         } catch (e) {
             console.error('[WIDGET] Introduction failed:', e);
-            // Final fallback
             if (config?.introduction_script) {
                 playBrowserTTS(config.introduction_script, () => startListening());
             } else {
                 startListening();
             }
         }
-    }
-    
-    function playAudio(blob, onComplete) {
-        const audioUrl = URL.createObjectURL(blob);
-        currentAudio = new Audio(audioUrl);
-        
-        currentAudio.onplay = () => {
-            isSpeaking = true;
-            avatar.classList.add('speaking');
-        };
-        
-        currentAudio.onended = () => {
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            URL.revokeObjectURL(audioUrl);
-            if (onComplete) onComplete();
-        };
-        
-        currentAudio.onerror = () => {
-            console.error('[WIDGET] Audio playback error');
-            isSpeaking = false;
-            avatar.classList.remove('speaking');
-            URL.revokeObjectURL(audioUrl);
-            if (onComplete) onComplete();
-        };
-        
-        currentAudio.play();
     }
     
     function startListening() {
@@ -226,24 +184,8 @@
             
             sessionId = res.headers.get('X-Session-ID') || sessionId;
             
-            const contentType = res.headers.get('content-type');
-            
-            // Try Google Cloud TTS audio
-            if (contentType && contentType.includes('audio')) {
-                const blob = await res.blob();
-                if (blob.size > 0) {
-                    console.log('[WIDGET] Playing Google Cloud TTS response');
-                    playAudio(blob, () => {
-                        if (isActive) setTimeout(startListening, 1000);
-                    });
-                    return;
-                }
-            }
-            
-            // Fallback to browser TTS
-            console.log('[WIDGET] Using browser TTS fallback');
             const data = await res.json();
-            console.log('[WIDGET] Text response:', data.response);
+            console.log('[WIDGET] AI response:', data.response);
             
             if (data.response) {
                 playBrowserTTS(data.response, () => {
