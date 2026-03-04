@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -60,9 +60,8 @@ class TenantCreate(BaseModel):
     gemini_api_key: Optional[str] = None
     avatar_id: Optional[str] = None
     introduction_script: Optional[str] = None
-    voice_model: str = "Puck"
-    voice_gender: str = "female"
     speaking_rate: float = 1.0
+    pitch: float = 0.0
 
 class KnowledgeCreate(BaseModel):
     category: str
@@ -83,9 +82,8 @@ def create_tenant(tenant_data: TenantCreate, db: Session = Depends(get_db)):
         domain=tenant_data.domain,
         avatar_id=tenant_data.avatar_id,
         introduction_script=tenant_data.introduction_script,
-        voice_model=tenant_data.voice_model,
-        voice_gender=tenant_data.voice_gender,
         speaking_rate=tenant_data.speaking_rate,
+        pitch=tenant_data.pitch,
         gemini_api_key_encrypted=encrypt_api_key(tenant_data.gemini_api_key) if tenant_data.gemini_api_key else None,
         widget_signature=widget_signature
     )
@@ -112,7 +110,7 @@ def list_tenants(db: Session = Depends(get_db)):
         "id": str(t.id), 
         "company_name": t.company_name, 
         "domain": t.domain, 
-        "voice_model": t.voice_model,
+        "avatar_id": str(t.avatar_id) if t.avatar_id else None,
         "status": t.status,
         "created_at": t.created_at.isoformat()
     } for t in tenants]
@@ -312,9 +310,9 @@ def update_tenant_avatar(tenant_id: str, avatar_id: str, db: Session = Depends(g
 # Avatar Management
 @app.post("/admin/avatars")
 async def create_avatar(
-    name: str, 
-    gender: str,
-    voice_name: str,
+    name: str = Form(...), 
+    gender: str = Form(...),
+    voice_name: str = Form(...),
     image_file: UploadFile = File(...), 
     db: Session = Depends(get_db)
 ):
