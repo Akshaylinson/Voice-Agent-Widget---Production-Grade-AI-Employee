@@ -313,6 +313,7 @@ async def create_avatar(
     name: str = Form(...), 
     gender: str = Form(...),
     voice_name: str = Form(...),
+    browser_voice_name: str = Form(None),
     image_file: UploadFile = File(...), 
     db: Session = Depends(get_db)
 ):
@@ -336,6 +337,7 @@ async def create_avatar(
         gender=gender.lower(),
         voice_provider="google",
         voice_name=voice_name,
+        browser_voice_name=browser_voice_name,
         image_data=image_data
     )
     db.add(avatar)
@@ -345,7 +347,8 @@ async def create_avatar(
         "id": str(avatar.id), 
         "name": avatar.name,
         "gender": avatar.gender,
-        "voice_name": avatar.voice_name
+        "voice_name": avatar.voice_name,
+        "browser_voice_name": avatar.browser_voice_name
     }
 
 @app.get("/admin/avatars")
@@ -356,6 +359,7 @@ def list_avatars(db: Session = Depends(get_db)):
         "name": a.name,
         "gender": a.gender,
         "voice_name": a.voice_name,
+        "browser_voice_name": a.browser_voice_name,
         "voice_provider": a.voice_provider,
         "image_data": a.image_data
     } for a in avatars]
@@ -371,6 +375,7 @@ async def update_avatar(
     name: str = Form(...),
     gender: str = Form(...),
     voice_name: str = Form(...),
+    browser_voice_name: str = Form(None),
     image_file: Optional[UploadFile] = File(None), 
     db: Session = Depends(get_db)
 ):
@@ -387,6 +392,7 @@ async def update_avatar(
     avatar.gender = gender.lower()
     
     avatar.voice_name = voice_name
+    avatar.browser_voice_name = browser_voice_name
     
     if image_file:
         image_bytes = await image_file.read()
@@ -400,7 +406,8 @@ async def update_avatar(
         "id": str(avatar.id),
         "name": avatar.name,
         "gender": avatar.gender,
-        "voice_name": avatar.voice_name
+        "voice_name": avatar.voice_name,
+        "browser_voice_name": avatar.browser_voice_name
     }
 
 @app.delete("/admin/avatars/{avatar_id}")

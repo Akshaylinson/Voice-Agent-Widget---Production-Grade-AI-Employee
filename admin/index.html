@@ -108,9 +108,15 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-slate-400 mb-2">Voice Model</label>
+                                    <label class="block text-sm font-medium text-slate-400 mb-2">Google Cloud Voice</label>
                                     <select id="avatar_voice" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                                         <option value="">Loading voices...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-400 mb-2">Browser TTS Voice (Fallback)</label>
+                                    <select id="browser_voice" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                        <option value="">Default Browser Voice</option>
                                     </select>
                                 </div>
                                 <div>
@@ -145,9 +151,15 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-slate-400 mb-2">Voice Model</label>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">Google Cloud Voice</label>
                     <select id="edit_avatar_voice" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                         <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">Browser TTS Voice (Fallback)</label>
+                    <select id="edit_browser_voice" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <option value="">Default Browser Voice</option>
                     </select>
                 </div>
                 <div>
@@ -278,6 +290,26 @@
         function showAvatarForm() {
             document.getElementById('avatar-form').classList.remove('hidden');
             loadVoices();
+            loadBrowserVoices();
+        }
+
+        function loadBrowserVoices() {
+            const select = document.getElementById('browser_voice');
+            const editSelect = document.getElementById('edit_browser_voice');
+            
+            if ('speechSynthesis' in window) {
+                const voices = speechSynthesis.getVoices();
+                const options = '<option value="">Default Browser Voice</option>' + 
+                    voices.map(v => `<option value="${v.name}">${v.name} (${v.lang})</option>`).join('');
+                
+                if (select) select.innerHTML = options;
+                if (editSelect) editSelect.innerHTML = options;
+            }
+        }
+
+        // Load browser voices when available
+        if ('speechSynthesis' in window) {
+            speechSynthesis.onvoiceschanged = loadBrowserVoices;
         }
 
         document.getElementById('avatar_file').addEventListener('change', function(e) {
@@ -296,6 +328,7 @@
             const name = document.getElementById('avatar_name').value;
             const gender = document.getElementById('avatar_gender').value;
             const voice_name = document.getElementById('avatar_voice').value;
+            const browser_voice_name = document.getElementById('browser_voice').value;
             const fileInput = document.getElementById('avatar_file');
             const file = fileInput.files[0];
             
@@ -309,6 +342,7 @@
                 formData.append('name', name);
                 formData.append('gender', gender);
                 formData.append('voice_name', voice_name);
+                if (browser_voice_name) formData.append('browser_voice_name', browser_voice_name);
                 formData.append('image_file', file);
                 
                 const res = await fetch(`${API_URL}/admin/avatars`, {
@@ -405,7 +439,12 @@
             
             await loadVoices();
             loadEditVoicesByGender();
+            loadBrowserVoices();
+            
             document.getElementById('edit_avatar_voice').value = avatar.voice_name;
+            if (avatar.browser_voice_name) {
+                document.getElementById('edit_browser_voice').value = avatar.browser_voice_name;
+            }
             
             document.getElementById('edit_avatar_preview').innerHTML = `
                 <img src="${avatar.image_data}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid #e5e7eb;">
@@ -430,6 +469,7 @@
             const name = document.getElementById('edit_avatar_name').value;
             const gender = document.getElementById('edit_avatar_gender').value;
             const voice_name = document.getElementById('edit_avatar_voice').value;
+            const browser_voice_name = document.getElementById('edit_browser_voice').value;
             const fileInput = document.getElementById('edit_avatar_file');
             const file = fileInput.files[0];
             
@@ -443,6 +483,7 @@
                 formData.append('name', name);
                 formData.append('gender', gender);
                 formData.append('voice_name', voice_name);
+                if (browser_voice_name) formData.append('browser_voice_name', browser_voice_name);
                 if (file) {
                     formData.append('image_file', file);
                 }

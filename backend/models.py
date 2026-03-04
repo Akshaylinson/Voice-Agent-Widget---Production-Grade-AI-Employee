@@ -37,6 +37,7 @@ class Avatar(Base):
     image_data = Column(Text, nullable=False)
     voice_provider = Column(String(50), default="google")
     voice_name = Column(String(100), default="en-US-Neural2-F")
+    browser_voice_name = Column(String(100))
     personality_prompt = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
