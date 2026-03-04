@@ -13,10 +13,10 @@ class Settings(BaseSettings):
     # Master Admin
     master_admin_secret: str = Field(default="change-me", env="MASTER_ADMIN_SECRET")
     
-    # OpenAI TTS
-    openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
-    openai_tts_model: str = Field(default="tts-1", env="OPENAI_TTS_MODEL")
-    default_voice: str = Field(default="nova", env="DEFAULT_VOICE")
+    # Google Cloud TTS
+    google_cloud_project_id: Optional[str] = Field(default=None, env="GOOGLE_CLOUD_PROJECT_ID")
+    google_application_credentials: Optional[str] = Field(default=None, env="GOOGLE_APPLICATION_CREDENTIALS")
+    default_voice: str = Field(default="en-US-Neural2-F", env="DEFAULT_VOICE")
     
     # Service Configuration
     api_timeout: int = Field(default=60, env="API_TIMEOUT")

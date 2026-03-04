@@ -464,8 +464,8 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
 
 @app.get("/api/introduction")
 async def get_introduction(request: Request, db: Session = Depends(get_db)):
-    """Return introduction audio using OpenAI TTS"""
-    from openai_tts_service import OpenAITTSService
+    """Return introduction audio using Google Cloud TTS"""
+    from google_tts_service import GoogleTTSService
     from fastapi.responses import StreamingResponse
     import io
     import time
@@ -480,21 +480,21 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
     
     try:
         start_time = time.time()
-        voice_model = tenant.voice_model or "nova"
+        voice_name = tenant.voice_model or "en-US-Neural2-F"
         
-        audio_content = await OpenAITTSService.generate_audio(
+        audio_content = await GoogleTTSService.generate_audio(
             tenant.introduction_script,
-            voice_model
+            voice_name
         )
         
         generation_time = time.time() - start_time
-        logger.info(f"[INTRODUCTION] Generated in {generation_time:.2f}s with voice: {voice_model}")
+        logger.info(f"[INTRODUCTION] Generated in {generation_time:.2f}s with voice: {voice_name}")
         
         if audio_content:
             return StreamingResponse(
                 io.BytesIO(audio_content),
                 media_type="audio/mpeg",
-                headers={"X-Voice-Model": voice_model}
+                headers={"X-Voice-Model": voice_name}
             )
         else:
             logger.warning("[INTRODUCTION] TTS failed, returning text")
@@ -506,8 +506,8 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/voice-query")
 async def voice_query(request: Request, db: Session = Depends(get_db)):
-    """Process voice query: Browser STT → Gemini LLM → OpenAI TTS"""
-    from openai_tts_service import OpenAITTSService
+    """Process voice query: Browser STT → Gemini LLM → Google Cloud TTS"""
+    from google_tts_service import GoogleTTSService
     from fastapi.responses import StreamingResponse
     import io
     import time
@@ -529,6 +529,7 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         
         api_key = tenant.decrypted_api_key if hasattr(tenant, 'decrypted_api_key') else None
         
+        # Gemini LLM with RAG
         gemini_session = GeminiLiveSession(
             tenant_id=str(tenant.id),
             company_name=tenant.company_name,
@@ -539,6 +540,7 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         
         response_text = await gemini_session.process_text_query(transcript)
         
+        # Save conversation
         conversation = Conversation(
             tenant_id=tenant.id,
             session_id=session_id,
@@ -552,14 +554,14 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         
         logger.info(f"[VOICE-QUERY] Gemini response: {response_text[:100]}...")
         
-        # Generate audio using OpenAI TTS
+        # Generate audio using Google Cloud TTS
         start_time = time.time()
-        voice_model = tenant.voice_model or "nova"
+        voice_name = tenant.voice_model or "en-US-Neural2-F"
         
-        audio_content = await OpenAITTSService.generate_audio(response_text, voice_model)
+        audio_content = await GoogleTTSService.generate_audio(response_text, voice_name)
         
         generation_time = time.time() - start_time
-        logger.info(f"[VOICE-QUERY] TTS generated in {generation_time:.2f}s with voice: {voice_model}")
+        logger.info(f"[VOICE-QUERY] TTS generated in {generation_time:.2f}s with voice: {voice_name}")
         
         if audio_content:
             return StreamingResponse(
@@ -567,7 +569,7 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
                 media_type="audio/mpeg",
                 headers={
                     "X-Session-ID": session_id,
-                    "X-Voice-Model": voice_model
+                    "X-Voice-Model": voice_name
                 }
             )
         else:
