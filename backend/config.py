@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     # Master Admin
     master_admin_secret: str = Field(default="change-me", env="MASTER_ADMIN_SECRET")
     
+    # OpenAI TTS
+    openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
+    openai_tts_model: str = Field(default="tts-1", env="OPENAI_TTS_MODEL")
+    default_voice: str = Field(default="nova", env="DEFAULT_VOICE")
+    
     # Service Configuration
     api_timeout: int = Field(default=60, env="API_TIMEOUT")
     log_level: str = Field(default="INFO", env="LOG_LEVEL")

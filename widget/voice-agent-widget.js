@@ -1,35 +1,26 @@
 (function() {
-    console.log('[WIDGET] Initializing Voice Agent Widget with Browser Speech API');
+    console.log('[WIDGET] Initializing Voice Agent Widget with OpenAI TTS');
     
-    // Configuration
     const WIDGET_API_URL = window.VOICE_AGENT_API_URL || 'http://localhost:8000/api';
     const TENANT_ID = window.VOICE_AGENT_TENANT_ID;
     const SIGNATURE = window.VOICE_AGENT_SIGNATURE;
     
-    console.log('[WIDGET] Config:', { WIDGET_API_URL, TENANT_ID, SIGNATURE: SIGNATURE?.substring(0, 20) + '...' });
+    console.log('[WIDGET] Config:', { WIDGET_API_URL, TENANT_ID });
     
     if (!TENANT_ID || !SIGNATURE) {
         console.error('[WIDGET] Missing tenant credentials');
         return;
     }
     
-    // Check browser support
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         console.error('[WIDGET] Browser does not support Speech Recognition');
         return;
     }
     
-    if (!('speechSynthesis' in window)) {
-        console.error('[WIDGET] Browser does not support Speech Synthesis');
-        return;
-    }
-    
-    // Create widget container
     const widgetContainer = document.createElement('div');
     widgetContainer.id = 'voice-agent-root';
     document.body.appendChild(widgetContainer);
     
-    // Inject styles
     const styles = document.createElement('style');
     styles.textContent = `
         #voice-agent-root { position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -48,7 +39,6 @@
     `;
     document.head.appendChild(styles);
     
-    // Create widget HTML
     widgetContainer.innerHTML = `
         <div id="voice-agent-avatar">
             <span class="va-icon">🤖</span>
@@ -56,14 +46,12 @@
         </div>
     `;
     
-    // Widget logic with browser speech APIs
     let isActive = false, isListening = false, isSpeaking = false;
-    let recognition = null, sessionId = null, config = null;
+    let recognition = null, sessionId = null, config = null, currentAudio = null;
     
     const avatar = document.getElementById('voice-agent-avatar');
     let statusIndicator = avatar.querySelector('.va-status');
     
-    // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
     recognition.continuous = false;
@@ -87,7 +75,7 @@
     recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log('[WIDGET] Speech recognized:', transcript);
-        processTextQuery(transcript);
+        processVoiceQuery(transcript);
     };
     
     recognition.onerror = (event) => {
@@ -99,148 +87,81 @@
     
     async function loadConfig() {
         try {
-            console.log('[WIDGET] Fetching config from:', `${WIDGET_API_URL}/config`);
-            
-            // Try with headers first
-            let res = await fetch(`${WIDGET_API_URL}/config`, {
+            const res = await fetch(`${WIDGET_API_URL}/config`, {
                 headers: {
                     'X-Tenant-ID': TENANT_ID,
                     'X-Signature': SIGNATURE
                 }
             });
             
-            // If headers fail (CORS), try with query parameters
-            if (!res.ok && res.status === 401) {
-                console.log('[WIDGET] Headers failed, trying query parameters');
-                res = await fetch(`${WIDGET_API_URL}/config?tenant_id=${TENANT_ID}&signature=${SIGNATURE}`);
-            }
+            if (!res.ok) throw new Error('Config load failed');
             
-            console.log('[WIDGET] Config response status:', res.status);
-            if (!res.ok) {
-                const errorText = await res.text();
-                console.error('[WIDGET] Config error:', errorText);
-                return;
-            }
             config = await res.json();
             console.log('[WIDGET] Config loaded:', config);
+            
             if (config.avatar_url) {
                 avatar.innerHTML = `<img src="${config.avatar_url}" alt="AI"><div class="va-status"></div>`;
                 statusIndicator = avatar.querySelector('.va-status');
             }
             if (config.brand_colors?.primary) avatar.style.background = config.brand_colors.primary;
-        } catch (e) { console.error('[WIDGET] Config load failed:', e); }
-    }
-    
-    // Force load voices and wait for them to be available
-    function loadVoicesAndWait() {
-        return new Promise((resolve) => {
-            let voices = speechSynthesis.getVoices();
-            if (voices.length > 0) {
-                resolve(voices);
-                return;
-            }
-            
-            const voicesChangedHandler = () => {
-                voices = speechSynthesis.getVoices();
-                if (voices.length > 0) {
-                    speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-                    resolve(voices);
-                }
-            };
-            
-            speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
-            
-            // Fallback timeout
-            setTimeout(() => {
-                speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-                resolve(speechSynthesis.getVoices());
-            }, 3000);
-        });
-    }
-    
-    function playIntroduction() {
-        if (!config?.introduction_script) {
-            console.log('[WIDGET] No introduction script, starting listening');
-            startListening();
-            return;
+        } catch (e) {
+            console.error('[WIDGET] Config load failed:', e);
         }
-        
-        console.log('[WIDGET] Playing introduction with browser TTS');
-        
-        loadVoicesAndWait().then(voices => {
-            const utterance = new SpeechSynthesisUtterance(config.introduction_script);
+    }
+    
+    async function playIntroduction() {
+        try {
+            console.log('[WIDGET] Fetching introduction audio from OpenAI TTS');
             
-            // Set voice based on config with better voice selection
-            if (voices.length > 0 && config) {
-                console.log('[WIDGET] Available voices:', voices.map(v => `${v.name} (${v.lang}) [${v.gender || 'unknown'}]`));
-                console.log('[WIDGET] Voice model from config:', config.voice_model);
-                console.log('[WIDGET] Voice gender from config:', config.voice_gender);
-                
-                let selectedVoice = null;
-                
-                // Map voice models to gender preference
-                const femaleModels = ['nova', 'shimmer', 'alloy'];
-                const maleModels = ['onyx', 'fable', 'echo'];
-                
-                const preferFemale = femaleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'female';
-                const preferMale = maleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'male';
-                
-                if (preferFemale) {
-                    // Try to find female voices
-                    selectedVoice = voices.find(v => 
-                        v.name.toLowerCase().includes('female') ||
-                        v.name.toLowerCase().includes('zira') ||
-                        v.name.toLowerCase().includes('hazel') ||
-                        v.name.toLowerCase().includes('susan') ||
-                        v.name.toLowerCase().includes('samantha') ||
-                        v.name.toLowerCase().includes('karen') ||
-                        v.name.toLowerCase().includes('moira') ||
-                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('female')) ||
-                        v.gender === 'female'
-                    );
-                } else if (preferMale) {
-                    // Try to find male voices
-                    selectedVoice = voices.find(v => 
-                        v.name.toLowerCase().includes('male') ||
-                        v.name.toLowerCase().includes('david') ||
-                        v.name.toLowerCase().includes('mark') ||
-                        v.name.toLowerCase().includes('alex') ||
-                        v.name.toLowerCase().includes('daniel') ||
-                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('male')) ||
-                        v.gender === 'male'
-                    );
+            const res = await fetch(`${WIDGET_API_URL}/introduction`, {
+                headers: {
+                    'X-Tenant-ID': TENANT_ID,
+                    'X-Signature': SIGNATURE
                 }
-                
-                // Fallback to first available voice
-                utterance.voice = selectedVoice || voices[0];
-                console.log('[WIDGET] Selected voice:', utterance.voice?.name, utterance.voice?.gender);
+            });
+            
+            const contentType = res.headers.get('content-type');
+            
+            if (contentType && contentType.includes('audio')) {
+                const blob = await res.blob();
+                if (blob.size > 0) {
+                    playAudio(blob, () => startListening());
+                    return;
+                }
             }
             
-            utterance.rate = 0.9;
-            utterance.pitch = 1.0;
-            
-            utterance.onstart = () => {
-                console.log('[WIDGET] Introduction TTS started');
-                isSpeaking = true;
-                avatar.classList.add('speaking');
-            };
-            
-            utterance.onend = () => {
-                console.log('[WIDGET] Introduction TTS ended');
-                isSpeaking = false;
-                avatar.classList.remove('speaking');
-                startListening();
-            };
-            
-            utterance.onerror = (e) => {
-                console.error('[WIDGET] Introduction TTS error:', e);
-                isSpeaking = false;
-                avatar.classList.remove('speaking');
-                startListening();
-            };
-            
-            speechSynthesis.speak(utterance);
-        });
+            startListening();
+        } catch (e) {
+            console.error('[WIDGET] Introduction failed:', e);
+            startListening();
+        }
+    }
+    
+    function playAudio(blob, onComplete) {
+        const audioUrl = URL.createObjectURL(blob);
+        currentAudio = new Audio(audioUrl);
+        
+        currentAudio.onplay = () => {
+            isSpeaking = true;
+            avatar.classList.add('speaking');
+        };
+        
+        currentAudio.onended = () => {
+            isSpeaking = false;
+            avatar.classList.remove('speaking');
+            URL.revokeObjectURL(audioUrl);
+            if (onComplete) onComplete();
+        };
+        
+        currentAudio.onerror = () => {
+            console.error('[WIDGET] Audio playback error');
+            isSpeaking = false;
+            avatar.classList.remove('speaking');
+            URL.revokeObjectURL(audioUrl);
+            if (onComplete) onComplete();
+        };
+        
+        currentAudio.play();
     }
     
     function startListening() {
@@ -254,157 +175,59 @@
         }
     }
     
-    async function processTextQuery(transcript) {
+    async function processVoiceQuery(transcript) {
         try {
-            console.log('[WIDGET] Processing text query:', transcript);
+            console.log('[WIDGET] Processing voice query:', transcript);
             
-            // Try with headers first
-            let res = await fetch(`${WIDGET_API_URL}/text-query`, {
+            const formData = new FormData();
+            formData.append('transcript', transcript);
+            if (sessionId) formData.append('session_id', sessionId);
+            
+            const res = await fetch(`${WIDGET_API_URL}/voice-query`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
                     'X-Tenant-ID': TENANT_ID,
                     'X-Signature': SIGNATURE
                 },
-                body: JSON.stringify({
-                    query: transcript,
-                    session_id: sessionId
-                })
+                body: formData
             });
             
-            // If headers fail (CORS), try with query parameters
-            if (!res.ok && res.status === 401) {
-                console.log('[WIDGET] Headers failed, trying query parameters');
-                res = await fetch(`${WIDGET_API_URL}/text-query?tenant_id=${TENANT_ID}&signature=${SIGNATURE}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        query: transcript,
-                        session_id: sessionId
-                    })
-                });
+            if (!res.ok) throw new Error('Voice query failed');
+            
+            sessionId = res.headers.get('X-Session-ID') || sessionId;
+            
+            const contentType = res.headers.get('content-type');
+            
+            if (contentType && contentType.includes('audio')) {
+                const blob = await res.blob();
+                if (blob.size > 0) {
+                    playAudio(blob, () => {
+                        if (isActive) setTimeout(startListening, 1000);
+                    });
+                    return;
+                }
             }
             
-            console.log('[WIDGET] Text query response status:', res.status);
-            if (!res.ok) {
-                const errorText = await res.text();
-                console.error('[WIDGET] Text query error:', errorText);
-                speakResponse('Sorry, I encountered an error. Please try again.');
-                return;
-            }
-            
+            // Fallback to text response
             const data = await res.json();
-            console.log('[WIDGET] Response received:', data);
+            console.log('[WIDGET] Text response:', data.response);
             
-            sessionId = data.session_id;
-            
-            if (data.response) {
-                speakResponse(data.response);
-            }
+            if (isActive) setTimeout(startListening, 1000);
             
         } catch (e) {
-            console.error('[WIDGET] Text query failed:', e);
-            speakResponse('Sorry, I encountered a connection error. Please try again.');
-            if (isActive) {
-                setTimeout(startListening, 1000);
-            }
+            console.error('[WIDGET] Voice query failed:', e);
+            if (isActive) setTimeout(startListening, 1000);
         }
-    }
-    
-    function speakResponse(text) {
-        console.log('[WIDGET] Speaking response with browser TTS:', text.substring(0, 100) + '...');
-        
-        loadVoicesAndWait().then(voices => {
-            const utterance = new SpeechSynthesisUtterance(text);
-            
-            // Set voice based on config with better voice selection
-            if (voices.length > 0 && config) {
-                console.log('[WIDGET] Available voices for response:', voices.map(v => `${v.name} (${v.lang}) [${v.gender || 'unknown'}]`));
-                console.log('[WIDGET] Voice model from config:', config.voice_model);
-                console.log('[WIDGET] Voice gender from config:', config.voice_gender);
-                
-                let selectedVoice = null;
-                
-                // Map voice models to gender preference
-                const femaleModels = ['nova', 'shimmer', 'alloy'];
-                const maleModels = ['onyx', 'fable', 'echo'];
-                
-                const preferFemale = femaleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'female';
-                const preferMale = maleModels.includes(config.voice_model?.toLowerCase()) || config.voice_gender === 'male';
-                
-                if (preferFemale) {
-                    // Try to find female voices
-                    selectedVoice = voices.find(v => 
-                        v.name.toLowerCase().includes('female') ||
-                        v.name.toLowerCase().includes('zira') ||
-                        v.name.toLowerCase().includes('hazel') ||
-                        v.name.toLowerCase().includes('susan') ||
-                        v.name.toLowerCase().includes('samantha') ||
-                        v.name.toLowerCase().includes('karen') ||
-                        v.name.toLowerCase().includes('moira') ||
-                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('female')) ||
-                        v.gender === 'female'
-                    );
-                } else if (preferMale) {
-                    // Try to find male voices
-                    selectedVoice = voices.find(v => 
-                        v.name.toLowerCase().includes('male') ||
-                        v.name.toLowerCase().includes('david') ||
-                        v.name.toLowerCase().includes('mark') ||
-                        v.name.toLowerCase().includes('alex') ||
-                        v.name.toLowerCase().includes('daniel') ||
-                        (v.name.toLowerCase().includes('google') && v.name.toLowerCase().includes('male')) ||
-                        v.gender === 'male'
-                    );
-                }
-                
-                // Fallback to first available voice
-                utterance.voice = selectedVoice || voices[0];
-                console.log('[WIDGET] Selected voice for response:', utterance.voice?.name, utterance.voice?.gender);
-            }
-            
-            utterance.rate = 0.9;
-            utterance.pitch = 1.0;
-            
-            utterance.onstart = () => {
-                console.log('[WIDGET] Response TTS started');
-                isSpeaking = true;
-                avatar.classList.add('speaking');
-            };
-            
-            utterance.onend = () => {
-                console.log('[WIDGET] Response TTS ended');
-                isSpeaking = false;
-                avatar.classList.remove('speaking');
-                if (isActive) {
-                    setTimeout(startListening, 1000);
-                }
-            };
-            
-            utterance.onerror = (e) => {
-                console.error('[WIDGET] Response TTS error:', e);
-                isSpeaking = false;
-                avatar.classList.remove('speaking');
-                if (isActive) {
-                    setTimeout(startListening, 1000);
-                }
-            };
-            
-            speechSynthesis.speak(utterance);
-        });
     }
     
     avatar.addEventListener('click', () => {
         if (isActive) {
             console.log('[WIDGET] Deactivating voice assistant');
             isActive = false;
-            if (isListening) {
-                recognition.stop();
-            }
-            if (isSpeaking) {
-                speechSynthesis.cancel();
+            if (isListening) recognition.stop();
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
             }
             isSpeaking = false;
             avatar.classList.remove('listening', 'speaking');
@@ -413,11 +236,7 @@
             console.log('[WIDGET] Activating voice assistant');
             isActive = true;
             sessionId = null;
-            
-            // Always wait for voices to be loaded before starting
-            loadVoicesAndWait().then(() => {
-                playIntroduction();
-            });
+            playIntroduction();
         }
     });
     

@@ -464,7 +464,12 @@ async def get_conversations(request: Request, limit: int = 50, db: Session = Dep
 
 @app.get("/api/introduction")
 async def get_introduction(request: Request, db: Session = Depends(get_db)):
-    """Return introduction text for browser TTS"""
+    """Return introduction audio using OpenAI TTS"""
+    from openai_tts_service import OpenAITTSService
+    from fastapi.responses import StreamingResponse
+    import io
+    import time
+    
     logger.info(f"[INTRODUCTION] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
@@ -473,17 +478,45 @@ async def get_introduction(request: Request, db: Session = Depends(get_db)):
     if not tenant.introduction_script:
         return JSONResponse(content={"text": ""})
     
-    return JSONResponse(content={"text": tenant.introduction_script})
+    try:
+        start_time = time.time()
+        voice_model = tenant.voice_model or "nova"
+        
+        audio_content = await OpenAITTSService.generate_audio(
+            tenant.introduction_script,
+            voice_model
+        )
+        
+        generation_time = time.time() - start_time
+        logger.info(f"[INTRODUCTION] Generated in {generation_time:.2f}s with voice: {voice_model}")
+        
+        if audio_content:
+            return StreamingResponse(
+                io.BytesIO(audio_content),
+                media_type="audio/mpeg",
+                headers={"X-Voice-Model": voice_model}
+            )
+        else:
+            logger.warning("[INTRODUCTION] TTS failed, returning text")
+            return JSONResponse(content={"text": tenant.introduction_script})
+            
+    except Exception as e:
+        logger.error(f"[INTRODUCTION] Error: {e}")
+        return JSONResponse(content={"text": tenant.introduction_script})
 
 @app.post("/api/voice-query")
 async def voice_query(request: Request, db: Session = Depends(get_db)):
-    """Process voice query: Browser STT → Gemini LLM → Browser TTS"""
+    """Process voice query: Browser STT → Gemini LLM → OpenAI TTS"""
+    from openai_tts_service import OpenAITTSService
+    from fastapi.responses import StreamingResponse
+    import io
+    import time
+    
     logger.info(f"[VOICE-QUERY] Request from {request.headers.get('Origin')}")
     
     tenant = await get_tenant_context(request, db)
     logger.info(f"[VOICE-QUERY] Tenant: {tenant.company_name}")
     
-    # Parse form data (browser sends transcribed text)
     form = await request.form()
     transcript = form.get("transcript")
     session_id = form.get("session_id") or str(uuid.uuid4())
@@ -494,10 +527,8 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
     try:
         logger.info(f"[VOICE-QUERY] Transcript: {transcript}")
         
-        # Get API key (tenant-specific or master)
         api_key = tenant.decrypted_api_key if hasattr(tenant, 'decrypted_api_key') else None
         
-        # Initialize Gemini session with RAG
         gemini_session = GeminiLiveSession(
             tenant_id=str(tenant.id),
             company_name=tenant.company_name,
@@ -506,10 +537,8 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         )
         await gemini_session.initialize()
         
-        # Generate response using Gemini
         response_text = await gemini_session.process_text_query(transcript)
         
-        # Save conversation
         conversation = Conversation(
             tenant_id=tenant.id,
             session_id=session_id,
@@ -521,12 +550,29 @@ async def voice_query(request: Request, db: Session = Depends(get_db)):
         db.add(conversation)
         db.commit()
         
-        logger.info(f"[VOICE-QUERY] Success: {response_text[:100]}...")
+        logger.info(f"[VOICE-QUERY] Gemini response: {response_text[:100]}...")
         
-        # Return text response for browser TTS
-        return JSONResponse(
-            content={"response": response_text, "session_id": session_id}
-        )
+        # Generate audio using OpenAI TTS
+        start_time = time.time()
+        voice_model = tenant.voice_model or "nova"
+        
+        audio_content = await OpenAITTSService.generate_audio(response_text, voice_model)
+        
+        generation_time = time.time() - start_time
+        logger.info(f"[VOICE-QUERY] TTS generated in {generation_time:.2f}s with voice: {voice_model}")
+        
+        if audio_content:
+            return StreamingResponse(
+                io.BytesIO(audio_content),
+                media_type="audio/mpeg",
+                headers={
+                    "X-Session-ID": session_id,
+                    "X-Voice-Model": voice_model
+                }
+            )
+        else:
+            logger.warning("[VOICE-QUERY] TTS failed, returning text")
+            return JSONResponse(content={"response": response_text, "session_id": session_id})
         
     except Exception as e:
         logger.error(f"[VOICE-QUERY] Error: {e}")
