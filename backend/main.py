@@ -376,29 +376,42 @@ async def process_text_query(data: TextQuery, request: Request, db: Session = De
     tenant = await get_tenant_context(request, db)
     session_id = data.session_id or str(uuid.uuid4())
     
-    knowledge = db.query(KnowledgeBase).filter(
-        KnowledgeBase.tenant_id == tenant.id,
-        KnowledgeBase.is_active == True
-    ).all()
-    
-    knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
-    
-    # Use tenant's OpenAI API key
-    # response_text = await generate_response(data.query, knowledge_context, tenant.company_name, tenant.decrypted_api_key)
-    response_text = f"Response from {tenant.company_name} based on knowledge base."
-    
-    conversation = Conversation(
-        tenant_id=tenant.id,
-        session_id=session_id,
-        transcript=data.query,
-        response=response_text,
-        token_usage=0,
-        duration=0.0
-    )
-    db.add(conversation)
-    db.commit()
-    
-    return {"response": response_text, "session_id": session_id}
+    try:
+        # Get knowledge base
+        knowledge = db.query(KnowledgeBase).filter(
+            KnowledgeBase.tenant_id == tenant.id,
+            KnowledgeBase.is_active == True
+        ).all()
+        
+        knowledge_context = "\n".join([f"{k.title}: {k.content}" for k in knowledge])
+        
+        # Get API key (tenant-specific or master)
+        api_key = tenant.decrypted_api_key or os.getenv("OPENROUTER_API_KEY")
+        
+        # Generate response using OpenRouter
+        response_text = await generate_response(
+            data.query,
+            knowledge_context,
+            tenant.company_name,
+            api_key
+        )
+        
+        # Save conversation
+        conversation = Conversation(
+            tenant_id=tenant.id,
+            session_id=session_id,
+            transcript=data.query,
+            response=response_text,
+            token_usage=0,
+            duration=0.0
+        )
+        db.add(conversation)
+        db.commit()
+        
+        return {"response": response_text, "session_id": session_id}
+    except Exception as e:
+        logger.error(f"[TEXT-QUERY] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/knowledge")
 async def add_knowledge(knowledge: KnowledgeCreate, request: Request, db: Session = Depends(get_db)):
